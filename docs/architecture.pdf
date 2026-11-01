@@ -1,0 +1,807 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Length 13313 >>
+stream
+q
+0.9569 0.9686 0.9804 rg
+0 0 1600 1280 re f
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1.1 w
+40 593 220 575 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+40 1126 220 42 re f
+Q
+q
+1.0000 1.0000 1.0000 rg
+BT /F2 17 Tf 56 1141 Td (Client) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 11 Tf 56 1107 Td (Static web UI) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1.1 w
+282 593 800 575 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+282 1126 800 42 re f
+Q
+q
+1.0000 1.0000 1.0000 rg
+BT /F2 17 Tf 298 1141 Td (Spring Boot application) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 11 Tf 298 1107 Td (One local service process: REST API + scheduled job worker) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1.1 w
+1104 593 456 575 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+1104 1126 456 42 re f
+Q
+q
+1.0000 1.0000 1.0000 rg
+BT /F2 17 Tf 1120 1141 Td (External systems) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 11 Tf 1120 1107 Td (Authenticated REST integrations) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1.1 w
+40 246 1520 318 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+40 522 1520 42 re f
+Q
+q
+1.0000 1.0000 1.0000 rg
+BT /F2 17 Tf 56 537 Td (MongoDB: plane_to_notion) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 11 Tf 56 503 Td (Durable configuration, job state, project catalog, and source-to-target mappings) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+BT /F2 17 Tf 700 1141 Td (Plane to Notion Connector) Tj ET
+Q
+q
+0.1529 0.4941 0.5098 RG
+2.1 w
+230 882 m
+310 1062 l
+S
+0.1529 0.4941 0.5098 rg
+310 1062 m
+310.61736386187374 1052.019075099869 l
+302.1777809914308 1055.770000820066 l h f
+Q
+q
+0.2157 0.4431 0.6392 RG
+1.8 w
+500 1067 m
+545 1067 l
+S
+0.2157 0.4431 0.6392 rg
+545 1067 m
+536.1300507722071 1062.3822082445852 l
+536.1300507722071 1071.6177917554148 l h f
+Q
+q
+0.2157 0.4431 0.6392 RG
+1.8 w
+500 1037 m
+520 1037 l
+520 908 l
+545 908 l
+S
+0.2157 0.4431 0.6392 rg
+545 908 m
+536.1300507722071 903.3822082445852 l
+536.1300507722071 912.6177917554148 l h f
+Q
+q
+0.6706 0.4745 0.1412 RG
+1.8 w
+770 1070 m
+830 1070 l
+S
+0.6706 0.4745 0.1412 rg
+830 1070 m
+821.1300507722071 1065.3822082445852 l
+821.1300507722071 1074.6177917554148 l h f
+Q
+q
+0.2157 0.4431 0.6392 RG
+1.8 w
+770 908 m
+830 908 l
+S
+0.2157 0.4431 0.6392 rg
+830 908 m
+821.1300507722071 903.3822082445852 l
+821.1300507722071 912.6177917554148 l h f
+Q
+q
+0.1529 0.4941 0.5098 RG
+2 w
+830 852 m
+535 745 l
+S
+0.1529 0.4941 0.5098 rg
+535 745 m
+541.7638398262978 752.3654918915295 l
+544.912946176905 743.6833762520051 l h f
+Q
+q
+0.2157 0.4431 0.6392 RG
+1.8 w
+535 745 m
+580 745 l
+S
+0.2157 0.4431 0.6392 rg
+580 745 m
+571.1300507722071 740.3822082445852 l
+571.1300507722071 749.6177917554148 l h f
+Q
+q
+0.1529 0.4941 0.5098 RG
+1.8 w
+535 710 m
+535 690 l
+810 690 l
+810 745 l
+830 745 l
+S
+0.1529 0.4941 0.5098 rg
+830 745 m
+821.1300507722071 740.3822082445852 l
+821.1300507722071 749.6177917554148 l h f
+Q
+q
+0.2157 0.4431 0.6392 RG
+1.8 w
+770 745 m
+1140 1018 l
+S
+0.2157 0.4431 0.6392 rg
+1140 1018 m
+1135.604258119954 1009.0179371342654 l
+1130.1209240126186 1016.4495621149031 l h f
+Q
+q
+0.1529 0.4941 0.5098 RG
+1.8 w
+1050 745 m
+1080 745 l
+1080 910 l
+1450 910 l
+1450 962 l
+S
+0.1529 0.4941 0.5098 rg
+1450 962 m
+1454.6177917554148 953.1300507722071 l
+1445.3822082445852 953.1300507722071 l h f
+Q
+q
+0.1529 0.4941 0.5098 RG
+1.5 w
+1050 725 m
+1140 800 l
+S
+0.1529 0.4941 0.5098 rg
+1140 800 m
+1136.1421544969771 790.774110987292 l
+1130.2296780115455 797.86908276981 l h f
+Q
+q
+0.6706 0.4745 0.1412 RG
+1.8 w
+905 640 m
+960 640 l
+960 564 l
+S
+0.6706 0.4745 0.1412 rg
+960 564 m
+955.3822082445852 572.8699492277929 l
+964.6177917554148 572.8699492277929 l h f
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+70 825 160 112 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+70 825 5 112 re f
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 10 Tf 86 915 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 86 893 Td (React UI) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 86 874 Td (React + TypeScript) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 86 859 Td (Vite static build) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+310 1019 190 86 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+310 1019 5 86 re f
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 10 Tf 326 1083 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 326 1061 Td (REST controllers) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 326 1042 Td (Configs, projects, jobs) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+545 1012 225 104 re B
+Q
+q
+0.2000 0.4941 0.3725 rg
+545 1012 5 104 re f
+Q
+q
+0.2000 0.4941 0.3725 rg
+BT /F2 10 Tf 561 1094 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 561 1072 Td (Config + catalog) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 561 1053 Td (Provision Notion destinations) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 561 1038 Td (Refresh project hierarchy) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+830 1024 220 92 re B
+Q
+q
+0.6706 0.4745 0.1412 rg
+830 1024 5 92 re f
+Q
+q
+0.6706 0.4745 0.1412 rg
+BT /F2 10 Tf 846 1094 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 846 1072 Td (Schedule service) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 846 1053 Td (Calculate next occurrence) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+545 862 225 92 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+545 862 5 92 re f
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 10 Tf 561 932 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 561 910 Td (Sync job service) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 561 891 Td (Validate and enqueue requests) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+830 852 220 112 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+830 852 5 112 re f
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 10 Tf 846 942 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 846 920 Td (Scheduled worker) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 846 901 Td (Poll every 5 seconds) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 846 886 Td (Claim, execute, finalize) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+310 692 225 100 re B
+Q
+q
+0.2000 0.4941 0.3725 rg
+310 692 5 100 re f
+Q
+q
+0.2000 0.4941 0.3725 rg
+BT /F2 10 Tf 326 770 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 326 748 Td (Work-item sync) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 326 729 Td (Eligibility, mapping, hash) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 326 714 Td (Create or update Notion) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+580 708 190 78 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+580 708 5 78 re f
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 10 Tf 596 764 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 596 742 Td (Plane client) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 596 723 Td (Cursor-paginated reads) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+830 708 220 78 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+830 708 5 78 re f
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 10 Tf 846 764 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 846 742 Td (Notion client) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 846 723 Td (Pages, data sources, summaries) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+590 614 315 54 re B
+Q
+q
+0.6706 0.4745 0.1412 rg
+590 614 5 54 re f
+Q
+q
+0.6706 0.4745 0.1412 rg
+BT /F2 10 Tf 606 646 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 606 624 Td (Mongo repositories) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 606 605 Td (Used by app services for persisted state) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+1140 962 180 112 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+1140 962 5 112 re f
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 10 Tf 1156 1052 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 1156 1030 Td (Plane API) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1156 1011 Td (Workspaces, projects,) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1156 996 Td (work items) Tj ET
+Q
+q
+0.9216 0.9569 0.9843 rg
+0.7922 0.8471 0.8941 RG
+1 w
+1360 962 180 112 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+1360 962 5 112 re f
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 10 Tf 1376 1052 Td (<<component>>) Tj ET
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 1376 1030 Td (Notion API) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1376 1011 Td (Pages, databases,) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1376 996 Td (data sources) Tj ET
+Q
+q
+0.9608 0.9804 0.9882 rg
+0.7922 0.8471 0.8941 RG
+1 w
+1140 725 400 150 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 15 Tf 1160 845 Td (Notion destination hierarchy) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F2 12 Tf 1160 818 Td (Parent page) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 12 Tf 1195 796 Td (-> Workspace page) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 12 Tf 1230 774 Td (-> Project page + work-item data source) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1195 749 Td (Workspace and parent summaries roll up project data.) Tj ET
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 9 Tf 235 966 Td (HTTP / JSON) Tj ET
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 9 Tf 1060 930 Td (REST) Tj ET
+Q
+q
+0.1529 0.4941 0.5098 rg
+BT /F2 9 Tf 1058 794 Td (REST) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+65 404 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 78 458 Td (sync_configs) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 78 434 Td (One project per config | options, schedule, status, Notion IDs) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+568 404 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 581 458 Td (sync_jobs) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 581 434 Td (Durable queue + run history | trigger, status, timestamps, counts) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+1071 404 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 1084 458 Td (sync_mappings) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1084 434 Td (Plane source ID -> Notion page ID | SHA-256 source hash) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+65 312 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 78 366 Td (plane_projects + plane_workspaces) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 78 342 Td (Cached Plane catalog | workspace-to-Notion page link) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+568 312 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 581 366 Td (notion_destinations) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 581 342 Td (Created on first task URL sync without a project config) Tj ET
+Q
+q
+0.9765 0.9843 0.9922 rg
+0.7922 0.8471 0.8941 RG
+0.8 w
+1071 312 465 78 re B
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 1084 366 Td (Index strategy) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1084 342 Td (Unique project/config and mapping keys; compound job query indexes) Tj ET
+Q
+q
+0.2157 0.4431 0.6392 rg
+BT /F2 13 Tf 42 202 Td (KEY ENGINEERING DECISIONS) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+40 109 485 76 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+40 109 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 56 162 Td (Durable, atomic job processing) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 56 140 Td (Manual and scheduled work share Mongo job records; atomic claim) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 56 126 Td (moves one due job to RUNNING.) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+557 109 485 76 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+557 109 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 573 162 Td (Checkpointed incremental sync) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 573 140 Td (updated_at bounds plus a 100 ms overlap protect timestamp) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 573 126 Td (boundaries between runs.) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+1074 109 486 76 re B
+Q
+q
+0.2000 0.4941 0.3725 rg
+1074 109 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 1090 162 Td (Idempotent Notion writes) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1090 140 Td (Unique mappings and content hashes prevent duplicate pages and) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1090 126 Td (skip unchanged writes.) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+40 24 485 76 re B
+Q
+q
+0.6706 0.4745 0.1412 rg
+40 24 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 56 77 Td (Bounded data operations) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 56 55 Td (Plane cursor pages are 200; Mongo mapping lookups and writes are) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 56 41 Td (grouped up to 1,000.) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+557 24 485 76 re B
+Q
+q
+0.2157 0.4431 0.6392 rg
+557 24 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 573 77 Td (Project-aware destinations) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 573 55 Td (Each project syncs to its workspace/project Notion hierarchy and) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 573 41 Td (contributes to rollups.) Tj ET
+Q
+q
+1.0000 1.0000 1.0000 rg
+0.7922 0.8471 0.8941 RG
+1 w
+1074 24 486 76 re B
+Q
+q
+0.1529 0.4941 0.5098 rg
+1074 24 5 76 re f
+Q
+q
+0.0980 0.2039 0.2980 rg
+BT /F2 13 Tf 1090 77 Td (Indexes support hot paths) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1090 55 Td (Indexes target config uniqueness, job claim/history/checkpoint) Tj ET
+Q
+q
+0.3686 0.4431 0.5059 rg
+BT /F1 10 Tf 1090 41 Td (queries, and mapping uniqueness.) Tj ET
+Q
+endstream
+endobj
+4 0 obj
+<< /Font << /F1 1 0 R /F2 2 0 R >> >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 6 0 R /MediaBox [0 0 1600 1280] /Resources 4 0 R /Contents 3 0 R >>
+endobj
+6 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000013526 00000 n 
+0000013579 00000 n 
+0000013685 00000 n 
+0000013742 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+13791
+%%EOF
