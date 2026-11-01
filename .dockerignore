@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.git
+.DS_Store
+*.log
+backend/target
+frontend/node_modules
+frontend/dist
+context.md
+comments.md
+problem.txt
+ideas.txt
+important_refs.txt
+chatgpt_web_discussion_on_ideas.md

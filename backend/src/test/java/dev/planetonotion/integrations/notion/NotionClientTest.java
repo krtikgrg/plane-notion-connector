@@ -1,0 +1,144 @@
+package dev.planetonotion.integrations.notion;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+
+import dev.planetonotion.common.config.NotionProperties;
+import java.net.URI;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+class NotionClientTest {
+
+    private MockRestServiceServer server;
+
+    @AfterEach
+    void verifyRequests() {
+        if (server != null) server.verify();
+    }
+
+    @Test
+    void createProjectDestination_createsParentPageAndDatasourceSchema() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
+                "unit-test-token", "parent-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/pages"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer unit-test-token"))
+                .andExpect(content().string(containsString("workspace-page-id")))
+                .andRespond(withSuccess("{\"id\":\"project-page-id\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/databases"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(containsString("Todo")))
+                .andExpect(content().string(containsString("bug")))
+                .andExpect(content().string(not(containsString("DELETED_IN_PLANE"))))
+                .andRespond(withSuccess("""
+                        {"id":"project-database-id","data_sources":[{"id":"project-data-source-id"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        NotionClient.ProjectDestination destination = client.createProjectDestination(
+                "workspace-page-id", "Demo Project", List.of("Todo"), List.of("bug"));
+
+        assertThat(destination.pageId()).isEqualTo("project-page-id");
+        assertThat(destination.databaseId()).isEqualTo("project-database-id");
+        assertThat(destination.dataSourceId()).isEqualTo("project-data-source-id");
+    }
+
+    @Test
+    void createProjectDestination_archivesPageWhenDatabaseCreationFails() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
+                "unit-test-token", "parent-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/pages"))
+                .andRespond(withSuccess("{\"id\":\"project-page-id\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/databases"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+        server.expect(requestTo("https://notion.test/v1/blocks/project-page-id"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withSuccess());
+
+        assertThatThrownBy(() -> client.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
+                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "NOTION_API_ERROR");
+    }
+
+    @Test
+    void archivePage_reportsCleanupFailure() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
+                "unit-test-token", "parent-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/blocks/project-page-id"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> client.archivePage("project-page-id"))
+                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "NOTION_ARCHIVE_FAILED");
+    }
+
+    @Test
+    void upsertPageTableSummary_createsReadableSummaryTable() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
+                "unit-test-token", "parent-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children?page_size=100"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{\"results\":[],\"has_more\":false}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(content().string(containsString("Workspace overview")))
+                .andRespond(withSuccess("""
+                        {"results":[{"id":"heading-id","type":"heading_2","heading_2":{"rich_text":[]}}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children?page_size=100"))
+                .andRespond(withSuccess("""
+                        {"results":[{"id":"heading-id","type":"heading_2","heading_2":{"rich_text":[{"plain_text":"Workspace overview"}]}}],"has_more":false}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(content().string(containsString("1 workspace")))
+                .andRespond(withSuccess("""
+                        {"results":[{"id":"callout-id"}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(content().string(containsString("Synced work items")))
+                .andRespond(withSuccess("""
+                        {"results":[{"id":"table-id"}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/table-id/children?page_size=100"))
+                .andRespond(withSuccess("""
+                        {"results":[{"id":"header-id","type":"table_row","table_row":{"cells":[]}}],"has_more":false}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/blocks/header-id"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(content().string(containsString("Workspace")))
+                .andRespond(withSuccess());
+
+        client.upsertPageTableSummary("parent-page-id", "Workspace overview", List.of("Plane workspace rollup"),
+                "Plane sync summary:", "1 workspace · 1 configured project · 3 synced work items",
+                List.of("Workspace", "Projects", "Active", "Disabled", "Archived", "Synced work items"), List.of());
+    }
+}

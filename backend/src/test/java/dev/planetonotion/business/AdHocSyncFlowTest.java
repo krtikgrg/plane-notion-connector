@@ -1,0 +1,126 @@
+package dev.planetonotion.business;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import dev.planetonotion.TestData;
+import dev.planetonotion.common.config.AdHocNotionDestination;
+import dev.planetonotion.common.config.PlaneProperties;
+import dev.planetonotion.common.enums.SyncJobStatus;
+import dev.planetonotion.integrations.notion.NotionClient;
+import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.SyncMappingDocument;
+import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.mappings.SyncMappingRepository;
+import dev.planetonotion.repositories.projects.PlaneProjectRepository;
+import dev.planetonotion.repositories.sync.SyncJobRepository;
+import dev.planetonotion.services.projects.NotionHierarchyService;
+import dev.planetonotion.services.projects.ProjectCatalogService;
+import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.sync.SyncJobService;
+import dev.planetonotion.services.sync.SyncJobWorker;
+import dev.planetonotion.services.sync.WorkItemSyncService;
+import java.net.URI;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import org.bson.types.ObjectId;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class AdHocSyncFlowTest {
+
+    private static final String AD_HOC_DATA_SOURCE_ID = "adhoc-data-source";
+
+    @Mock private SyncJobRepository jobRepository;
+    @Mock private SyncConfigRepository configRepository;
+    @Mock private PlaneProjectRepository projectRepository;
+    @Mock private SyncMappingRepository mappingRepository;
+    @Mock private PlaneClient planeClient;
+    @Mock private NotionClient notionClient;
+    @Mock private ProjectCatalogService projectCatalogService;
+    @Mock private NotionHierarchyService notionHierarchyService;
+
+    @Test
+    void activeTaskUrlWithoutConfig_syncsIntoSharedAdHocDataSource() {
+        ObjectId projectRef = new ObjectId();
+        ObjectId jobId = new ObjectId();
+        PlaneProjectDocument project = TestData.project(projectRef, "workspace", "plane-project");
+        when(planeClient.getWorkItemByIdentifier("workspace", "DEMO-9")).thenReturn(TestData.json("""
+                {"id":"item-9","project_id":"plane-project","identifier":"DEMO-9",
+                 "is_draft":false,"archived_at":null}
+                """));
+        when(planeClient.getWorkItem("workspace", "plane-project", "item-9")).thenReturn(TestData.json("""
+                {"id":"item-9","project_id":"plane-project","identifier":"DEMO-9","name":"Active task",
+                 "is_draft":false,"archived_at":null,"state":{"name":"Done"},
+                 "priority":"low","target_date":"","updated_at":"2026-10-31T10:00:00Z",
+                 "description_html":"","assignees":[],"labels":[]}
+                """));
+        when(projectRepository.findByWorkspaceSlugAndProjectId("workspace", "plane-project"))
+                .thenReturn(Optional.of(project));
+        when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
+        when(configRepository.findByPlaneProjectRef(projectRef)).thenReturn(Optional.empty());
+        when(mappingRepository.findByTargetDataSourceIdAndSourceId(AD_HOC_DATA_SOURCE_ID, "item-9"))
+                .thenReturn(Optional.empty());
+        when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-9\"}"));
+        when(planeClient.workItemUrl("workspace", "plane-project", "item-9"))
+                .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-9");
+        when(jobRepository.save(any())).thenAnswer(invocation -> {
+            SyncJobDocument job = invocation.getArgument(0);
+            return job.id() == null ? withId(job, jobId) : job;
+        });
+        AtomicReference<SyncJobDocument> queued = new AtomicReference<>();
+        when(jobRepository.claimNextDueJob(any())).thenAnswer(invocation -> {
+            queued.set(withStatus(queued.get(), SyncJobStatus.RUNNING));
+            return Optional.of(queued.get());
+        });
+
+        SyncJobService jobService = new SyncJobService(jobRepository, configRepository, projectRepository, planeClient,
+                new PlaneProperties(URI.create("https://api.plane.so"), URI.create("https://app.plane.so"), "unused"));
+        WorkItemSyncService syncService = new WorkItemSyncService(planeClient, notionClient, mappingRepository);
+        SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository, syncService,
+                projectCatalogService, notionHierarchyService, new ScheduleService(jobRepository),
+                new AdHocNotionDestination("adhoc-page", "adhoc-database", AD_HOC_DATA_SOURCE_ID));
+
+        SyncJobDocument manualJob = jobService.enqueueTask(
+                "https://app.plane.so/workspace/browse/DEMO-9", null, false);
+        queued.set(manualJob);
+        worker.claimAndRunOne();
+
+        ArgumentCaptor<SyncJobDocument> saved = ArgumentCaptor.forClass(SyncJobDocument.class);
+        org.mockito.Mockito.verify(jobRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+        SyncJobDocument finished = saved.getAllValues().get(1);
+        assertThat(finished.status()).isEqualTo(SyncJobStatus.SUCCESS);
+        assertThat(finished.configId()).isNull();
+        assertThat(finished.createdCount()).isEqualTo(1);
+        verify(notionClient).ensureWorkItemOptions(AD_HOC_DATA_SOURCE_ID, List.of("Done"), List.of());
+        ArgumentCaptor<List<SyncMappingDocument>> mappings = ArgumentCaptor.forClass(List.class);
+        verify(mappingRepository).bulkUpsert(mappings.capture());
+        assertThat(mappings.getValue().getFirst().targetDataSourceId()).isEqualTo(AD_HOC_DATA_SOURCE_ID);
+        assertThat(mappings.getValue().getFirst().sourceHash()).isNotBlank();
+    }
+
+    private SyncJobDocument withId(SyncJobDocument job, ObjectId id) {
+        return new SyncJobDocument(id, job.triggerType(), job.syncScope(), job.status(), job.configId(),
+                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
+                job.scheduledFor(), job.startedAt(), job.finishedAt(), job.attemptCount(), job.fetchedCount(), job.eligibleCount(),
+                job.createdCount(), job.updatedCount(), job.unchangedCount(), job.failedCount(), job.errorCode(),
+                job.errorMessage(), job.createdAt(), job.updatedAt());
+    }
+
+    private SyncJobDocument withStatus(SyncJobDocument job, SyncJobStatus status) {
+        return new SyncJobDocument(job.id(), job.triggerType(), job.syncScope(), status, job.configId(),
+                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
+                job.scheduledFor(), Instant.now(), null, 1, 0, 0, 0, 0, 0, 0, null, null, job.createdAt(), Instant.now());
+    }
+}
