@@ -544,6 +544,8 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
   const [startAt, setStartAt] = useState(toUtcInput(config?.start_at));
   const [endAt, setEndAt] = useState(toUtcInput(config?.end_at));
   const [saving, setSaving] = useState(false);
+  const [calendarDaysError, setCalendarDaysError] = useState('');
+  const invalidWeeklySchedule = scheduleType === 'CALENDAR' && frequency === 'WEEKLY' && days.length === 0;
   const connectionIsValid = connection.startsWith('Connected');
 
   async function testConnection() {
@@ -577,6 +579,11 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (scheduleType === 'CALENDAR' && frequency === 'WEEKLY' && days.length === 0) {
+      setCalendarDaysError('Select at least one day for a weekly schedule.');
+      return;
+    }
+    setCalendarDaysError('');
     if (mode === 'create' && !projectRef) return notify('error', 'Select or resolve a Plane project first.');
     setSaving(true);
     const schedule: SchedulePayload = scheduleType === 'INTERVAL' ? {
@@ -600,6 +607,7 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
 
   function toggleDay(day: string) {
     setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day]);
+    setCalendarDaysError('');
   }
 
   return <Modal onClose={onClose} wide stickyFooter={mode === 'create'}><form className="editor-form" onSubmit={save}><div className="editor-scroll-content">
@@ -613,11 +621,11 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
     <section className="form-section"><div className="section-title"><span className="section-number">02</span><div><b>Sync options</b><small>Choose the Plane data copied to Notion.</small></div></div><div className="option-cards"><label className="option-card chosen"><input type="checkbox" checked readOnly /><span className="option-check">✓</span><span><b>Work items</b><small>Active, non-draft tasks, status, priority, labels and dates</small></span><span className="option-state">INCLUDED</span></label><div className="option-card disabled"><span className="empty-check" /><span><b>Pages</b><small>Project pages and documentation</small></span><span className="option-state">COMING LATER</span></div></div></section>
     <section className="form-section"><div className="section-title"><span className="section-number">03</span><div><b>Schedule</b><small>Schedules are evaluated in UTC in this prototype.</small></div></div>
       <div className="form-grid schedule-top"><label className="field"><span>Schedule type</span><select value={scheduleType} onChange={(event) => setScheduleType(event.target.value as 'INTERVAL' | 'CALENDAR')}><option value="INTERVAL">Fixed interval</option><option value="CALENDAR">Calendar schedule</option></select></label><label className="field"><span>Config status</span><select value={status} onChange={(event) => setStatus(event.target.value as ConfigStatus)}><option value="ACTIVE">Active</option><option value="DISABLED">Disabled</option><option value="ARCHIVED">Archived</option></select></label></div>
-      {scheduleType === 'INTERVAL' ? <div className="interval-fields"><label className="field"><span>Run every</span><input type="number" min="1" max="10000" value={intervalValue} onChange={(event) => setIntervalValue(Number(event.target.value))} /></label><label className="field"><span>Unit</span><select value={intervalUnit} onChange={(event) => setIntervalUnit(event.target.value as 'MINUTES' | 'HOURS')}><option value="MINUTES">Minutes</option><option value="HOURS">Hours</option></select></label></div> : <div className="calendar-fields"><div className="interval-fields"><label className="field"><span>Repeat</span><select value={frequency} onChange={(event) => setFrequency(event.target.value as 'DAILY' | 'WEEKLY')}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option></select></label><label className="field"><span>Every</span><div className="input-suffix"><input type="number" min="1" max="52" value={calendarInterval} onChange={(event) => setCalendarInterval(Number(event.target.value))} /><span>{frequency === 'WEEKLY' ? 'week(s)' : 'day(s)'}</span></div></label><label className="field"><span>At (UTC)</span><input type="time" value={calendarTime} onChange={(event) => setCalendarTime(event.target.value)} /></label></div>{frequency === 'WEEKLY' && <div className="field"><span>Days of week</span><div className="day-picker">{weekdays.map((day) => <button key={day} type="button" data-tooltip={`Toggle ${day}.`} aria-pressed={days.includes(day)} className={days.includes(day) ? 'selected' : ''} onClick={() => toggleDay(day)}>{day.slice(0, 3)}</button>)}</div></div>}</div>}
+      {scheduleType === 'INTERVAL' ? <div className="interval-fields"><label className="field"><span>Run every</span><input type="number" min="1" max="10000" value={intervalValue} onChange={(event) => setIntervalValue(Number(event.target.value))} /></label><label className="field"><span>Unit</span><select value={intervalUnit} onChange={(event) => setIntervalUnit(event.target.value as 'MINUTES' | 'HOURS')}><option value="MINUTES">Minutes</option><option value="HOURS">Hours</option></select></label></div> : <div className="calendar-fields"><div className="interval-fields"><label className="field"><span>Repeat</span><select value={frequency} onChange={(event) => { setFrequency(event.target.value as 'DAILY' | 'WEEKLY'); setCalendarDaysError(''); }}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option></select></label><label className="field"><span>Every</span><div className="input-suffix"><input type="number" min="1" max="52" value={calendarInterval} onChange={(event) => setCalendarInterval(Number(event.target.value))} /><span>{frequency === 'WEEKLY' ? 'week(s)' : 'day(s)'}</span></div></label><label className="field"><span>At (UTC)</span><input type="time" value={calendarTime} onChange={(event) => setCalendarTime(event.target.value)} /></label></div>{frequency === 'WEEKLY' && <div className="field"><span>Days of week</span><div className="day-picker">{weekdays.map((day) => <button key={day} type="button" data-tooltip={`Toggle ${day}.`} aria-pressed={days.includes(day)} className={days.includes(day) ? 'selected' : ''} onClick={() => toggleDay(day)}>{day.slice(0, 3)}</button>)}</div>{(calendarDaysError || invalidWeeklySchedule) && <small className="field-error" role="alert">{calendarDaysError || 'Select at least one day for a weekly schedule.'}</small>}</div>}</div>}
       <div className="form-grid window-fields"><label className="field"><span>Start time <em>OPTIONAL</em></span><input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} /><small>Inclusive · UTC</small></label><label className="field"><span>End time <em>OPTIONAL</em></span><input type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} /><small>Exclusive · UTC</small></label></div>
     </section>
     </div>
-    <div className="modal-footer"><span>{mode === 'create' ? 'The Notion database is created automatically. The first scheduled sync runs at its next scheduled time; use Sync now to start immediately.' : 'Changes to the schedule apply to future runs.'}</span><div><button type="button" data-tooltip="Close without saving changes." className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" data-tooltip={mode === 'create' ? 'Create this sync configuration.' : 'Save configuration changes.'} className="button button-primary" disabled={saving}>{saving ? 'Saving…' : mode === 'create' ? 'Create configuration' : 'Save changes'} <span>→</span></button></div></div>
+    <div className="modal-footer"><span>{mode === 'create' ? 'The Notion database is created automatically. The first scheduled sync runs at its next scheduled time; use Sync now to start immediately.' : 'Changes to the schedule apply to future runs.'}</span><div><button type="button" data-tooltip="Close without saving changes." className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" data-tooltip={mode === 'create' ? 'Create this sync configuration.' : 'Save configuration changes.'} className="button button-primary" disabled={saving || invalidWeeklySchedule}>{saving ? 'Saving…' : mode === 'create' ? 'Create configuration' : 'Save changes'} <span>→</span></button></div></div>
   </form></Modal>;
 }
 

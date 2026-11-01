@@ -261,19 +261,19 @@ Persist all three Notion IDs: the project page ID (summary/index), database ID (
 
 #### `sync_mappings` — Plane work item to Notion page lookup
 
-Keep this collection to one mapping per source work item per Notion data source. This avoids repeating Notion queries on every sync and supports the intentional case where a Plane item appears in both its configured project database and the shared ad hoc database.
+Keep this collection to one mapping per source work item per Notion data source. This avoids repeating Notion queries on ordinary syncs and supports the intentional case where a Plane item appears in both its configured project database and the shared ad hoc database. A mapping with a null `target_id` represents a pending create: it is persisted before the Notion create request so a retry can recover a page if the create succeeded but its response was lost.
 
 ```json
 {
   "_id": "<object_id>",
   "source_id": "<plane_work_item_uuid>",
-  "target_id": "<notion_page_id>",
+  "target_id": "<notion_page_id_or_null_while_create_is_pending>",
   "target_data_source_id": "<notion_data_source_id>",
   "source_hash": "<sha256_of_synced_properties>"
 }
 ```
 
-Create a unique compound index on `target_data_source_id + source_id`. `source_id` is the Plane work-item UUID; `target_id` is the Notion page UUID. The data-source ID scopes the mapping because one source item may be copied into multiple Notion destinations. `source_hash` is the SHA-256 of normalized Plane-derived Notion properties; it lets a sync count unchanged source rows accurately. The sync still reapplies mapped properties so Notion-side drift is corrected and missing pages can be recreated. No separate project ID, workspace slug, source/target type, timestamps, or sync status is needed: project identity is visible on ad hoc Notion rows, and run timing is already in `sync_jobs`. If the mapped Notion page no longer exists, remove/replace that stale mapping. The local single worker serializes writes; per-destination distributed locking is a production-hardening item.
+Create a unique compound index on `target_data_source_id + source_id`. `source_id` is the Plane work-item UUID; `target_id` is the Notion page UUID, or null while a create is pending. The data-source ID scopes the mapping because one source item may be copied into multiple Notion destinations. `source_hash` is the SHA-256 of normalized Plane-derived Notion properties; it lets a sync count unchanged source rows accurately. The sync still reapplies mapped properties so Notion-side drift is corrected and missing pages can be recreated. No separate project ID, workspace slug, source/target type, timestamps, or explicit sync status is needed: project identity is visible on ad hoc Notion rows, pending state is represented by the null target, and run timing is already in `sync_jobs`. A retry queries Notion by `work_item_id` only for pending mappings, recovers the page if an earlier create succeeded ambiguously, and otherwise creates it. Normal first-time creates add no Notion lookup request. Pending mappings are excluded from synced-item rollups. The local single worker serializes writes; per-destination distributed locking is a production-hardening item.
 
 #### Notion database creation and data-source schema
 
@@ -339,7 +339,7 @@ For the shared ad hoc database, add these properties to the schema:
 }
 ```
 
-The service uses `sync_mappings` to find the Notion page by `target_data_source_id + source_id`, then updates that page. If a mapping is absent, it creates the Notion page and inserts the mapping. The work-item ID and (for ad hoc rows) project identity remain visible as Notion properties for people browsing the database.
+The service uses `sync_mappings` to find the Notion page by `target_data_source_id + source_id`, then updates that page. Before creating a page, it saves a pending mapping. If a retry finds that pending mapping, it queries Notion by the visible `work_item_id` property to recover a page created before an ambiguous failure; if no page exists, it proceeds with create. The work-item ID and (for ad hoc rows) project identity remain visible as Notion properties for people browsing the database.
 
 For Notion row writes, map Plane data to those same property keys, for example:
 
@@ -429,7 +429,7 @@ The local prototype remains single-tenant. The implementation stays within the e
 #### Bounded batching and Notion write behavior
 
 - Plane API reads use the 200-row page-size constant. Work-item sync buffers no more than 1,000 rows, fetches mappings with one data-source-scoped `$in` query per buffer, and bulk-upserts mapping changes. Project catalog refresh also pages Plane results and bulk-upserts metadata/availability changes in Mongo batches of 1,000.
-- Notion page create/update remains one request per item. Before a PATCH, compare the normalized source hash; matching hashes skip the request. Mongo mappings are persisted in batches, flushing completed item mappings before propagating a later item error. Notion/Mongo cannot share a transaction, so a process failure after Notion creates a page but before its mapping is saved can cause a duplicate on retry; exactly-once delivery is not claimed. Rate-limit backoff remains production hardening.
+- Notion page create/update remains one request per item. Before a PATCH, compare the normalized source hash; matching hashes skip the request. New creates first bulk-write pending mappings for the batch, then bulk-write completed mappings as results are collected, flushing completed mappings before propagating a later item error. Only retries of pending creates add a Notion query by `work_item_id`; ordinary syncs do not query Notion. This mitigates ambiguous-create duplicates but cannot provide a cross-system transaction or strict exactly-once guarantee. Rate-limit backoff remains production hardening.
 - Incremental reads do not compare all mappings or mark absent items missing. That avoids a full mapping scan and avoids treating a delta response as a full project snapshot.
 
 #### Config create/update compensation
@@ -596,4 +596,5 @@ The entries below record the sequence of decisions and implementation steps. Whe
 - 2026-11-01: Corrected the Notion token environment-variable precedence after noticing that local `.env` uses `NOTION_CONNECTION_API_TOKEN`, while the app had only checked `NOTION_CONNECTION_TOKEN` and then fallen back to the personal token. The app now prefers `NOTION_CONNECTION_API_TOKEN`, keeps `NOTION_CONNECTION_TOKEN` as a compatibility alias, and uses `NOTION_PERSONAL_ACCESS_TOKEN` only as a final local-development fallback. Updated the blank example and setup instructions. `.env` values were not printed or changed.
 - 2026-11-01: Removed all Notion token fallback behavior per user direction. The service now reads only `NOTION_CONNECTION_API_TOKEN`; the personal-token variable was removed from `.env.example`, and setup/current-state documentation reflects the single-token requirement. `.env` was not read or changed.
 - 2026-11-01: Addressed PR design comments by consolidating Plane/Notion settings into `IntegrationProperties`, grouping enums in `PlaneToNotionEnums`, adding `PlaneService` as the controller/application boundary around `PlaneClient`, and extracting shared HTTP execution into `HttpService`. Flattened one-file packages, moved `NotionHierarchyService` into the service layer root, renamed/moved Mongo collection constants, and moved `MongoIdParser` and API DTOs out of singleton packages. The review confirmed both `INTERVAL` and `CALENDAR` scheduling are implemented. Kept custom Spring Data repository fragments for atomic/bulk/query operations; simple workspace repository methods are generated by Spring Data. Docker build succeeded with test execution skipped; no test suite was run for this review pass.
+- 2026-11-01: Addressed PR feedback on ambiguous Notion creates and invalid weekly schedules. The sync persists pending Mongo mappings before creates, retries recover any created Notion page by `work_item_id`, and rollups exclude pending records. Weekly calendar schedules require at least one selected weekday in the UI; backend validation remains the final guard. Added regression coverage; 46 backend tests and 7 frontend tests pass, with the frontend production build passing.
 - 2026-11-01: Addressed the PR comment about ad hoc Notion setup. On the first task-URL sync for a project without a config, the service now creates the shared page and inline database under `NOTION_PARENT_PAGE_ID`, then stores page/database/data-source IDs in the single `notion_destinations` Mongo record. Later runs reuse the Mongo record. Existing local `NOTION_AD_HOC_*` values can seed that record once to preserve current mappings; fresh setup no longer asks users to provide them. Added destination service and Notion client tests; all 43 backend tests pass.

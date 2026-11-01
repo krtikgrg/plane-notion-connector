@@ -88,6 +88,23 @@ class NotionClientTest {
     }
 
     @Test
+    void findWorkItemBySourceId_queriesDataSourceByPlaneWorkItemId() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/data_sources/data-source-id/query"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(containsString("work_item_id")))
+                .andExpect(content().string(containsString("plane-item-id")))
+                .andRespond(withSuccess("{\"results\":[{\"id\":\"notion-page-id\"}]}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.findWorkItemBySourceId("data-source-id", "plane-item-id")
+                .path("results").get(0).path("id").asString()).isEqualTo("notion-page-id");
+    }
+
+    @Test
     void createProjectDestination_archivesPageWhenDatabaseCreationFails() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();

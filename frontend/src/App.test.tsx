@@ -12,6 +12,8 @@ vi.mock('./api', () => ({
     listJobs: vi.fn(),
     listConfigJobs: vi.fn(),
     nextScheduledRuns: vi.fn(),
+    updateConfig: vi.fn(),
+    createConfig: vi.fn(),
     enqueueProjectSync: vi.fn(),
     enqueueTaskSync: vi.fn(),
   },
@@ -67,7 +69,7 @@ describe('manual sync flows', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: /configurations/i }));
-    await user.click(screen.getByTitle('Queue a project sync'));
+    await user.click(screen.getByRole('button', { name: /sync demo project now/i }));
     await user.click(screen.getByRole('checkbox', { name: /force run on archived config/i }));
     await user.click(screen.getByRole('button', { name: /queue sync/i }));
 
@@ -114,10 +116,23 @@ describe('manual sync flows', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: /configurations/i }));
-    await user.click(screen.getByRole('button', { name: /demo project/i }));
+    await user.click(screen.getAllByRole('button', { name: /demo project/i })[0]);
     await user.click(await screen.findByRole('button', { name: /load more runs/i }));
 
     expect(api.listConfigJobs).toHaveBeenCalledWith('config-1', 'config-job-1');
+  });
+
+  it('blocks saving a weekly schedule until at least one weekday is selected', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /configurations/i }));
+    await user.click(screen.getByRole('button', { name: /edit demo project configuration/i }));
+    await user.selectOptions(screen.getByLabelText(/schedule type/i), 'CALENDAR');
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Select at least one day for a weekly schedule.');
+    expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(api.updateConfig).not.toHaveBeenCalled();
   });
 
   it('refreshes run history after a task URL is queued', async () => {

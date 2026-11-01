@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 
 import dev.planetonotion.TestData;
 import dev.planetonotion.integrations.NotionClient;
@@ -23,6 +24,7 @@ import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -111,6 +113,51 @@ class WorkItemSyncServiceTest {
 
         assertThat(progress.get().eligibleCount()).isEqualTo(2);
         assertThat(progress.get().createdCount()).isEqualTo(1);
-        verify(mappingRepository).bulkUpsert(any());
+        verify(mappingRepository, times(2)).bulkUpsert(any());
+    }
+
+    @Test
+    void syncOne_persistsPendingMappingBeforeCreatingNotionPage() {
+        var project = TestData.project(new ObjectId(), "workspace", "plane-project");
+        var config = TestData.config(new ObjectId(), project.id(), dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus.ACTIVE,
+                dev.planetonotion.common.PlaneToNotionEnums.ScheduleType.INTERVAL, 30, "MINUTES", null, null);
+        when(planeService.getWorkItem("workspace", "plane-project", "item-1")).thenReturn(TestData.json("""
+                {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
+                """));
+        when(mappingRepository.findByTargetDataSourceIdAndSourceId(anyString(), anyString())).thenReturn(java.util.Optional.empty());
+        when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-1\"}"));
+
+        WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
+        service.syncOne(config, project, "item-1", ignored -> {});
+
+        InOrder order = inOrder(mappingRepository, notionClient);
+        order.verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
+                mappings.size() == 1 && mappings.getFirst().targetId() == null));
+        order.verify(notionClient).createWorkItem(anyString(), any());
+        order.verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
+                mappings.size() == 1 && "notion-page-1".equals(mappings.getFirst().targetId())));
+    }
+
+    @Test
+    void syncOne_recoversPageForPendingMappingAfterAmbiguousCreate() {
+        var project = TestData.project(new ObjectId(), "workspace", "plane-project");
+        var config = TestData.config(new ObjectId(), project.id(), dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus.ACTIVE,
+                dev.planetonotion.common.PlaneToNotionEnums.ScheduleType.INTERVAL, 30, "MINUTES", null, null);
+        when(planeService.getWorkItem("workspace", "plane-project", "item-1")).thenReturn(TestData.json("""
+                {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
+                """));
+        SyncMappingDocument pending = new SyncMappingDocument(new ObjectId(), "item-1", null, "notion-data-source", "");
+        when(mappingRepository.findByTargetDataSourceIdAndSourceId(anyString(), anyString())).thenReturn(java.util.Optional.of(pending));
+        when(notionClient.findWorkItemBySourceId("notion-data-source", "item-1"))
+                .thenReturn(TestData.json("{\"results\":[{\"id\":\"recovered-page-id\"}]}"));
+
+        WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
+        WorkItemSyncService.SyncResult result = service.syncOne(config, project, "item-1", ignored -> {});
+
+        assertThat(result.updatedCount()).isEqualTo(1);
+        verify(notionClient).updateWorkItem(org.mockito.ArgumentMatchers.eq("recovered-page-id"), any());
+        verify(notionClient, org.mockito.Mockito.never()).createWorkItem(anyString(), any());
+        verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
+                mappings.size() == 1 && "recovered-page-id".equals(mappings.getFirst().targetId())));
     }
 }

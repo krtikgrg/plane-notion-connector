@@ -119,9 +119,10 @@ class SyncProcessingFlowTest {
         worker.claimAndRunOne();
 
         ArgumentCaptor<List<SyncMappingDocument>> mapping = ArgumentCaptor.forClass(List.class);
-        verify(mappingRepository).bulkUpsert(mapping.capture());
-        assertThat(mapping.getValue().getFirst().sourceId()).isEqualTo("item-1");
-        assertThat(mapping.getValue().getFirst().targetId()).isEqualTo("notion-page-1");
+        verify(mappingRepository, times(2)).bulkUpsert(mapping.capture());
+        List<dev.planetonotion.models.documents.SyncMappingDocument> completedMappings = mapping.getAllValues().getLast();
+        assertThat(completedMappings.getFirst().sourceId()).isEqualTo("item-1");
+        assertThat(completedMappings.getFirst().targetId()).isEqualTo("notion-page-1");
         ArgumentCaptor<SyncJobDocument> savedJobs = ArgumentCaptor.forClass(SyncJobDocument.class);
         verify(jobRepository, times(2)).save(savedJobs.capture());
         SyncJobDocument complete = savedJobs.getAllValues().get(1);

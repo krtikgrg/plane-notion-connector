@@ -271,6 +271,12 @@ public class NotionClient {
                 "properties", properties));
     }
 
+    public JsonNode findWorkItemBySourceId(String dataSourceId, String sourceId) {
+        return post("/v1/data_sources/" + segment(dataSourceId) + "/query", Map.of(
+                "page_size", 1,
+                "filter", Map.of("property", "work_item_id", "rich_text", Map.of("equals", sourceId))));
+    }
+
     public void updateWorkItem(String pageId, Map<String, Object> properties) {
         patch("/v1/pages/" + segment(pageId), Map.of("properties", properties));
     }

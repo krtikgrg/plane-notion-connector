@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.TreeMap;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -79,7 +81,12 @@ public class WorkItemSyncService {
         notionClient.ensureWorkItemOptions(dataSourceId, stateNames, labelNames);
         SyncMappingDocument mapping = mappingRepository.findByTargetDataSourceIdAndSourceId(dataSourceId,
                 workItem.path("id").asString("")).orElse(null);
-        UpsertResult result = upsert(dataSourceId, project, workItem, adHoc, mapping);
+        boolean newPendingMapping = mapping == null;
+        if (newPendingMapping) {
+            mapping = pendingMapping(workItem.path("id").asString(""), dataSourceId);
+            mappingRepository.bulkUpsert(List.of(mapping));
+        }
+        UpsertResult result = upsert(dataSourceId, project, workItem, adHoc, mapping, newPendingMapping);
         if (result.mapping() != null) mappingRepository.bulkUpsert(List.of(result.mapping()));
         SyncResult syncResult = new SyncResult(1, result.created() ? 1 : 0, result.updated() ? 1 : 0,
                 result.unchanged() ? 1 : 0);
@@ -94,6 +101,17 @@ public class WorkItemSyncService {
         Map<String, SyncMappingDocument> mappingsBySourceId = new LinkedHashMap<>();
         mappingRepository.findByTargetDataSourceIdAndSourceIdIn(dataSourceId, sourceIds)
                 .forEach(mapping -> mappingsBySourceId.put(mapping.sourceId(), mapping));
+        List<SyncMappingDocument> pendingMappings = new ArrayList<>();
+        Set<String> pendingCreatedSourceIds = new HashSet<>();
+        for (String sourceId : sourceIds) {
+            if (!mappingsBySourceId.containsKey(sourceId)) {
+                SyncMappingDocument pending = pendingMapping(sourceId, dataSourceId);
+                mappingsBySourceId.put(sourceId, pending);
+                pendingMappings.add(pending);
+                pendingCreatedSourceIds.add(sourceId);
+            }
+        }
+        if (!pendingMappings.isEmpty()) mappingRepository.bulkUpsert(pendingMappings);
         List<SyncMappingDocument> mappingsToWrite = new ArrayList<>();
         try {
             for (JsonNode workItem : batch) {
@@ -103,7 +121,8 @@ public class WorkItemSyncService {
                 if (sourceId.isBlank()) {
                     throw new ServiceException(HttpStatus.BAD_GATEWAY, "PLANE_RESPONSE_INVALID", "Plane returned a work item without an ID.");
                 }
-                UpsertResult result = upsert(dataSourceId, project, workItem, false, mappingsBySourceId.get(sourceId));
+                boolean pendingCreatedNow = pendingCreatedSourceIds.contains(sourceId);
+                UpsertResult result = upsert(dataSourceId, project, workItem, false, mappingsBySourceId.get(sourceId), pendingCreatedNow);
                 if (result.mapping() != null) mappingsToWrite.add(result.mapping());
                 if (result.created()) accumulator.createdCount++;
                 else if (result.updated()) accumulator.updatedCount++;
@@ -119,7 +138,7 @@ public class WorkItemSyncService {
     }
 
     private UpsertResult upsert(String dataSourceId, PlaneProjectDocument project, JsonNode workItem,
-            boolean adHoc, SyncMappingDocument mapping) {
+            boolean adHoc, SyncMappingDocument mapping, boolean pendingCreatedNow) {
         String sourceId = workItem.path("id").asString("");
         Map<String, Object> properties = notionProperties(project, workItem);
         if (adHoc) {
@@ -130,6 +149,24 @@ public class WorkItemSyncService {
         }
         String sourceHash = sourceHash(properties);
         if (mapping != null) {
+            if (mapping.targetId() == null || mapping.targetId().isBlank()) {
+                if (!pendingCreatedNow) {
+                    JsonNode matches = notionClient.findWorkItemBySourceId(dataSourceId, sourceId);
+                    JsonNode foundPage = matches.path("results").isArray() && !matches.path("results").isEmpty()
+                            ? matches.path("results").get(0) : null;
+                    if (foundPage != null) {
+                        String recoveredTargetId = foundPage.path("id").asString("");
+                        if (recoveredTargetId.isBlank()) {
+                            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502,
+                                    "Notion returned a matching work item without a page ID.");
+                        }
+                        notionClient.updateWorkItem(recoveredTargetId, properties);
+                        return new UpsertResult(false, true, false,
+                                new SyncMappingDocument(mapping.id(), sourceId, recoveredTargetId, dataSourceId, sourceHash));
+                    }
+                }
+                return createWithMapping(dataSourceId, sourceId, sourceHash, properties, mapping.id());
+            }
             boolean unchanged = sourceHash.equals(mapping.sourceHash());
             if (unchanged) return new UpsertResult(false, false, true, null);
             try {
@@ -138,16 +175,29 @@ public class WorkItemSyncService {
                         new SyncMappingDocument(mapping.id(), sourceId, mapping.targetId(), dataSourceId, sourceHash));
             } catch (IntegrationException exception) {
                 if (exception.upstreamStatus() != 404) throw exception;
+                mappingRepository.bulkUpsert(List.of(pendingMapping(sourceId, dataSourceId, mapping.id())));
             }
         }
+        return createWithMapping(dataSourceId, sourceId, sourceHash, properties, mapping == null ? null : mapping.id());
+    }
 
+    private UpsertResult createWithMapping(String dataSourceId, String sourceId, String sourceHash,
+            Map<String, Object> properties, org.bson.types.ObjectId mappingId) {
         JsonNode page = notionClient.createWorkItem(dataSourceId, properties);
         String targetId = page.path("id").asString("");
         if (targetId.isBlank()) {
             throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, "Notion did not return the created work item page ID.");
         }
         return new UpsertResult(true, false, false,
-                new SyncMappingDocument(mapping == null ? null : mapping.id(), sourceId, targetId, dataSourceId, sourceHash));
+                new SyncMappingDocument(mappingId, sourceId, targetId, dataSourceId, sourceHash));
+    }
+
+    private SyncMappingDocument pendingMapping(String sourceId, String dataSourceId) {
+        return pendingMapping(sourceId, dataSourceId, null);
+    }
+
+    private SyncMappingDocument pendingMapping(String sourceId, String dataSourceId, org.bson.types.ObjectId id) {
+        return new SyncMappingDocument(id, sourceId, null, dataSourceId, "");
     }
 
     private String sourceHash(Map<String, Object> properties) {

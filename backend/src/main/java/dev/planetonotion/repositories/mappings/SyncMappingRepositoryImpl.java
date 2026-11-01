@@ -45,7 +45,8 @@ public class SyncMappingRepositoryImpl implements SyncMappingRepositoryCustom {
         if (dataSourceIds.isEmpty()) return Map.of();
         Aggregation aggregation = Aggregation.newAggregation(
                 Aggregation.match(org.springframework.data.mongodb.core.query.Criteria
-                        .where("target_data_source_id").in(dataSourceIds)),
+                        .where("target_data_source_id").in(dataSourceIds)
+                        .and("target_id").ne(null)),
                 Aggregation.group("target_data_source_id").count().as("count"));
         AggregationResults<org.bson.Document> results = mongoTemplate.aggregate(
                 aggregation, MongoCollectionConstants.SYNC_MAPPINGS, org.bson.Document.class);
