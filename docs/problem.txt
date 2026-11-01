@@ -1,0 +1,4 @@
+**Technical Integration Scenario (30 Minutes):**
+
+- Build an integration, migration, or automation between Notion and a system of your choice (please do not choose an existing Notion marketplace integration) that solves a business or operational problem.
+    - Describe the business value of what you built and provide a brief demo that showcases your knowledge of Notion, your engineering proficiency, and your ability to architect an end to end solution. Feel free to leverage whichever programming language you're most comfortable with. Have fun with it!

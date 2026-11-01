@@ -1,0 +1,29 @@
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  config:
+    import: optional:file:../.env[.properties]
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017}
+    database: plane_to_notion
+  data:
+    mongodb:
+      auto-index-creation: true
+
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+
+integration:
+  plane-api-base-url: ${PLANE_API_BASE_URL:https://api.plane.so}
+  plane-app-base-url: ${PLANE_APP_BASE_URL:https://app.plane.so}
+  plane-personal-access-token: ${PLANE_PERSONAL_ACCESS_TOKEN:}
+  notion-api-base-url: ${NOTION_API_BASE_URL:https://api.notion.com}
+  notion-connection-token: ${NOTION_CONNECTION_API_TOKEN:}
+  notion-parent-page-id: ${NOTION_PARENT_PAGE_ID:}
+  legacy-notion-ad-hoc-page-id: ${NOTION_AD_HOC_PAGE_ID:}
+  legacy-notion-ad-hoc-database-id: ${NOTION_AD_HOC_DATABASE_ID:}
+  legacy-notion-ad-hoc-data-source-id: ${NOTION_AD_HOC_DATA_SOURCE_ID:}
+
+sync:
+  worker:
+    poll-interval-ms: ${SYNC_WORKER_POLL_INTERVAL_MS:5000}
