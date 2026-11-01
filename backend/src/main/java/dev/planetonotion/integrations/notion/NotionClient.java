@@ -407,7 +407,7 @@ public class NotionClient {
 
     private void requireToken() {
         if (properties.connectionToken() == null || properties.connectionToken().isBlank()) {
-            throw new IntegrationException("NOTION_TOKEN_MISSING", 0, "NOTION_CONNECTION_TOKEN is not configured.");
+            throw new IntegrationException("NOTION_TOKEN_MISSING", 0, "NOTION_CONNECTION_API_TOKEN is not configured.");
         }
     }
 
