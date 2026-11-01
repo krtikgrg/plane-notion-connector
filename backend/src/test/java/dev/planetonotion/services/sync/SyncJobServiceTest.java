@@ -8,18 +8,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.config.PlaneProperties;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
 import java.net.URI;
@@ -37,7 +36,7 @@ class SyncJobServiceTest {
     @Mock private SyncJobRepository jobRepository;
     @Mock private SyncConfigRepository configRepository;
     @Mock private PlaneProjectRepository projectRepository;
-    @Mock private PlaneClient planeClient;
+    @Mock private PlaneService planeService;
 
     private final ObjectId projectRef = new ObjectId();
     private final ObjectId configId = new ObjectId();
@@ -50,8 +49,8 @@ class SyncJobServiceTest {
         project = TestData.project(projectRef, "demo-workspace", "plane-project");
         config = TestData.config(configId, projectRef, ConfigStatus.ACTIVE, ScheduleType.INTERVAL,
                 30, "MINUTES", null, null);
-        service = new SyncJobService(jobRepository, configRepository, projectRepository, planeClient,
-                new PlaneProperties(URI.create("https://api.plane.so"), URI.create("https://app.plane.so"), "unused"));
+        service = new SyncJobService(jobRepository, configRepository, projectRepository, planeService,
+                TestData.integrationProperties());
     }
 
     @Test
@@ -116,7 +115,7 @@ class SyncJobServiceTest {
 
     @Test
     void enqueueTask_rejectsDraftWorkItem() {
-        when(planeClient.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
+        when(planeService.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
                 .thenReturn(TestData.json("{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":true}"));
 
         assertThatThrownBy(() -> service.enqueueTask("https://app.plane.so/demo-workspace/browse/DEMO-7", null, false))
@@ -127,7 +126,7 @@ class SyncJobServiceTest {
 
     @Test
     void enqueueTask_rejectsArchivedWorkItem() {
-        when(planeClient.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
+        when(planeService.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
                 .thenReturn(TestData.json("{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":\"2026-10-31T10:00:00Z\"}"));
 
         assertThatThrownBy(() -> service.enqueueTask("https://app.plane.so/demo-workspace/browse/DEMO-7", null, false))
@@ -137,7 +136,7 @@ class SyncJobServiceTest {
     }
 
     private void stubActiveTask() {
-        when(planeClient.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
+        when(planeService.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
                 .thenReturn(TestData.json("{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":null}"));
     }
 

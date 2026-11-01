@@ -1,7 +1,7 @@
 package dev.planetonotion.repositories.mappings;
 
 import dev.planetonotion.models.documents.SyncMappingDocument;
-import dev.planetonotion.common.constants.MongoCollections;
+import dev.planetonotion.common.MongoCollectionConstants;
 import java.util.List;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -48,7 +48,7 @@ public class SyncMappingRepositoryImpl implements SyncMappingRepositoryCustom {
                         .where("target_data_source_id").in(dataSourceIds)),
                 Aggregation.group("target_data_source_id").count().as("count"));
         AggregationResults<org.bson.Document> results = mongoTemplate.aggregate(
-                aggregation, MongoCollections.SYNC_MAPPINGS, org.bson.Document.class);
+                aggregation, MongoCollectionConstants.SYNC_MAPPINGS, org.bson.Document.class);
         Map<String, Long> counts = new LinkedHashMap<>();
         results.getMappedResults().forEach(result -> counts.put(result.getString("_id"),
                 result.get("count", Number.class).longValue()));

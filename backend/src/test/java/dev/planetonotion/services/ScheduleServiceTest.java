@@ -1,4 +1,4 @@
-package dev.planetonotion.services.scheduling;
+package dev.planetonotion.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -7,11 +7,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import dev.planetonotion.repositories.sync.SyncJobRepository;

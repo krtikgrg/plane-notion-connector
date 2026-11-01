@@ -1,12 +1,12 @@
-package dev.planetonotion.integrations.plane;
+package dev.planetonotion.integrations;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import dev.planetonotion.common.config.PlaneProperties;
-import java.net.URI;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.TestData;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,8 +31,8 @@ class PlaneClientTest {
     void getWorkItemByIdentifier_doesNotScanProjectAfterNotFound() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        PlaneClient client = new PlaneClient(new PlaneProperties(URI.create("https://plane.test"),
-                URI.create("https://app.plane.test"), "test-token"), builder);
+        PlaneClient client = new PlaneClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "test-token", "https://notion.test", "unused", "parent"), builder);
 
         server.expect(request -> {
             assertThat(request.getMethod()).isEqualTo(HttpMethod.GET);
@@ -46,8 +46,8 @@ class PlaneClientTest {
     void getWorkItem_doesNotScanProjectWhenDetailReadHidesItem() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        PlaneClient client = new PlaneClient(new PlaneProperties(URI.create("https://plane.test"),
-                URI.create("https://app.plane.test"), "test-token"), builder);
+        PlaneClient client = new PlaneClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "test-token", "https://notion.test", "unused", "parent"), builder);
 
         server.expect(request -> assertThat(request.getURI().getPath())
                 .isEqualTo("/api/v2/workspaces/workspace/projects/project-id/work-items/item-id/"))
@@ -60,8 +60,8 @@ class PlaneClientTest {
     void projectWorkItems_usesActiveNonDraftIncrementalCursorWindow() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        PlaneClient client = new PlaneClient(new PlaneProperties(URI.create("https://plane.test"),
-                URI.create("https://app.plane.test"), "test-token"), builder);
+        PlaneClient client = new PlaneClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "test-token", "https://notion.test", "unused", "parent"), builder);
         server.expect(request -> {
             assertThat(request.getURI().getQuery()).contains("archived=false", "is_draft=false", "order_by=updated_at",
                     "paginate=cursor", "per_page=200", "updated_at__gte=2026-10-31T09:59:59.900Z",

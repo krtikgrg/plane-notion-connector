@@ -1,14 +1,14 @@
-package dev.planetonotion.controllers.sync;
+package dev.planetonotion.controllers;
 
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.common.utils.MongoIdParser;
+import dev.planetonotion.common.MongoIdParser;
 import dev.planetonotion.models.documents.SyncJobDocument;
-import dev.planetonotion.models.dto.ApiDtos.EnqueuedJobResponse;
-import dev.planetonotion.models.dto.ApiDtos.JobResponse;
-import dev.planetonotion.models.dto.ApiDtos.JobHistoryResponse;
-import dev.planetonotion.models.dto.ApiDtos.ManualTaskSyncRequest;
+import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
+import dev.planetonotion.models.ApiDtos.JobResponse;
+import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
+import dev.planetonotion.models.ApiDtos.ManualTaskSyncRequest;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;

@@ -3,8 +3,8 @@ package dev.planetonotion.services.sync;
 import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.notion.NotionClient;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
@@ -29,12 +29,12 @@ public class WorkItemSyncService {
     private static final JsonMapper HASH_MAPPER = JsonMapper.builder().build();
     private static final int MONGO_BATCH_SIZE = 1000;
 
-    private final PlaneClient planeClient;
+    private final PlaneService planeService;
     private final NotionClient notionClient;
     private final SyncMappingRepository mappingRepository;
 
-    public WorkItemSyncService(PlaneClient planeClient, NotionClient notionClient, SyncMappingRepository mappingRepository) {
-        this.planeClient = planeClient;
+    public WorkItemSyncService(PlaneService planeService, NotionClient notionClient, SyncMappingRepository mappingRepository) {
+        this.planeService = planeService;
         this.notionClient = notionClient;
         this.mappingRepository = mappingRepository;
     }
@@ -42,13 +42,13 @@ public class WorkItemSyncService {
     public SyncResult syncProject(PlaneProjectDocument project, SyncConfigDocument config, Instant updatedAtFrom,
             Instant updatedAtTo, Consumer<SyncResult> progressConsumer) {
         String dataSourceId = config.notionDataSourceId();
-        List<String> states = names(planeClient.listWorkItemStates(project.workspaceSlug(), project.projectId()));
-        List<String> labels = names(planeClient.listWorkItemLabels(project.workspaceSlug(), project.projectId()));
+        List<String> states = names(planeService.listWorkItemStates(project.workspaceSlug(), project.projectId()));
+        List<String> labels = names(planeService.listWorkItemLabels(project.workspaceSlug(), project.projectId()));
         notionClient.ensureWorkItemOptions(dataSourceId, states, labels);
 
         SyncAccumulator accumulator = new SyncAccumulator();
         List<JsonNode> batch = new ArrayList<>(MONGO_BATCH_SIZE);
-        planeClient.forEachProjectWorkItemPage(project.workspaceSlug(), project.projectId(), updatedAtFrom,
+        planeService.forEachProjectWorkItemPage(project.workspaceSlug(), project.projectId(), updatedAtFrom,
                 updatedAtTo, page -> {
                     for (JsonNode workItem : page) {
                         batch.add(workItem);
@@ -71,7 +71,7 @@ public class WorkItemSyncService {
 
     private SyncResult syncOne(String dataSourceId, PlaneProjectDocument project, String workItemId, boolean adHoc,
             Consumer<SyncResult> progressConsumer) {
-        JsonNode workItem = planeClient.getWorkItem(project.workspaceSlug(), project.projectId(), workItemId);
+        JsonNode workItem = planeService.getWorkItem(project.workspaceSlug(), project.projectId(), workItemId);
         assertEligible(workItem);
         progressConsumer.accept(new SyncResult(1, 0, 0, 0));
         List<String> stateNames = namesFromExpanded(workItem.path("state"));
@@ -180,7 +180,7 @@ public class WorkItemSyncService {
         properties.put("name", typed("title", richText(workItem.path("name").asString("Untitled work item"))));
         properties.put("identifier", typed("rich_text", richText(workItem.path("identifier").asString(""))));
         properties.put("work_item_id", typed("rich_text", richText(workItemId)));
-        properties.put("work_item_url", typed("url", planeClient.workItemUrl(project.workspaceSlug(), project.projectId(), workItemId)));
+        properties.put("work_item_url", typed("url", planeService.workItemUrl(project.workspaceSlug(), project.projectId(), workItemId)));
         properties.put("description", typed("rich_text", richText(plainText(workItem.path("description_html").asString("")))));
         properties.put("state", typed("select", state.isBlank() ? null : Map.of("name", state)));
         properties.put("priority", typed("select", "none".equals(priority) ? null : Map.of("name", priority)));

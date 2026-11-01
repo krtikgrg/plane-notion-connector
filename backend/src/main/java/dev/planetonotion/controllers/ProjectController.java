@@ -1,13 +1,13 @@
-package dev.planetonotion.controllers.projects;
+package dev.planetonotion.controllers;
 
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.dto.ApiDtos.PlaneConnectionResponse;
-import dev.planetonotion.models.dto.ApiDtos.ProjectRefreshRequest;
-import dev.planetonotion.models.dto.ApiDtos.ProjectRefreshResponse;
-import dev.planetonotion.models.dto.ApiDtos.ProjectResponse;
-import dev.planetonotion.models.dto.ApiDtos.ProjectUrlRequest;
-import dev.planetonotion.services.projects.ProjectCatalogService;
+import dev.planetonotion.models.ApiDtos.PlaneConnectionResponse;
+import dev.planetonotion.models.ApiDtos.ProjectRefreshRequest;
+import dev.planetonotion.models.ApiDtos.ProjectRefreshResponse;
+import dev.planetonotion.models.ApiDtos.ProjectResponse;
+import dev.planetonotion.models.ApiDtos.ProjectUrlRequest;
+import dev.planetonotion.services.ProjectCatalogService;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.List;
@@ -22,17 +22,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/plane")
 public class ProjectController {
 
-    private final PlaneClient planeClient;
+    private final PlaneService planeService;
     private final ProjectCatalogService projectCatalogService;
 
-    public ProjectController(PlaneClient planeClient, ProjectCatalogService projectCatalogService) {
-        this.planeClient = planeClient;
+    public ProjectController(PlaneService planeService, ProjectCatalogService projectCatalogService) {
+        this.planeService = planeService;
         this.projectCatalogService = projectCatalogService;
     }
 
     @PostMapping("/connection/test")
     public PlaneConnectionResponse testConnection() {
-        planeClient.testConnection();
+        planeService.testConnection();
         return new PlaneConnectionResponse("CONNECTED");
     }
 
@@ -55,7 +55,7 @@ public class ProjectController {
 
     private ProjectResponse toResponse(PlaneProjectDocument project) {
         return new ProjectResponse(project.id().toHexString(), project.workspaceSlug(), project.projectId(),
-                project.name(), project.identifier(), planeClient.projectUrl(project.workspaceSlug(), project.projectId()),
+                project.name(), project.identifier(), planeService.projectUrl(project.workspaceSlug(), project.projectId()),
                 project.isArchived(), project.isAvailable(), project.lastRefreshedAt());
     }
 }

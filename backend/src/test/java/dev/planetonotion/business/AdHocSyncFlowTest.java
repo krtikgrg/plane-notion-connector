@@ -7,21 +7,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.config.AdHocNotionDestination;
-import dev.planetonotion.common.config.PlaneProperties;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.integrations.notion.NotionClient;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.mappings.SyncMappingRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
-import dev.planetonotion.services.projects.NotionHierarchyService;
-import dev.planetonotion.services.projects.ProjectCatalogService;
-import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.ProjectCatalogService;
+import dev.planetonotion.services.ScheduleService;
 import dev.planetonotion.services.sync.SyncJobService;
 import dev.planetonotion.services.sync.SyncJobWorker;
 import dev.planetonotion.services.sync.WorkItemSyncService;
@@ -46,7 +44,7 @@ class AdHocSyncFlowTest {
     @Mock private SyncConfigRepository configRepository;
     @Mock private PlaneProjectRepository projectRepository;
     @Mock private SyncMappingRepository mappingRepository;
-    @Mock private PlaneClient planeClient;
+    @Mock private PlaneService planeService;
     @Mock private NotionClient notionClient;
     @Mock private ProjectCatalogService projectCatalogService;
     @Mock private NotionHierarchyService notionHierarchyService;
@@ -56,11 +54,11 @@ class AdHocSyncFlowTest {
         ObjectId projectRef = new ObjectId();
         ObjectId jobId = new ObjectId();
         PlaneProjectDocument project = TestData.project(projectRef, "workspace", "plane-project");
-        when(planeClient.getWorkItemByIdentifier("workspace", "DEMO-9")).thenReturn(TestData.json("""
+        when(planeService.getWorkItemByIdentifier("workspace", "DEMO-9")).thenReturn(TestData.json("""
                 {"id":"item-9","project_id":"plane-project","identifier":"DEMO-9",
                  "is_draft":false,"archived_at":null}
                 """));
-        when(planeClient.getWorkItem("workspace", "plane-project", "item-9")).thenReturn(TestData.json("""
+        when(planeService.getWorkItem("workspace", "plane-project", "item-9")).thenReturn(TestData.json("""
                 {"id":"item-9","project_id":"plane-project","identifier":"DEMO-9","name":"Active task",
                  "is_draft":false,"archived_at":null,"state":{"name":"Done"},
                  "priority":"low","target_date":"","updated_at":"2026-10-31T10:00:00Z",
@@ -73,7 +71,7 @@ class AdHocSyncFlowTest {
         when(mappingRepository.findByTargetDataSourceIdAndSourceId(AD_HOC_DATA_SOURCE_ID, "item-9"))
                 .thenReturn(Optional.empty());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-9\"}"));
-        when(planeClient.workItemUrl("workspace", "plane-project", "item-9"))
+        when(planeService.workItemUrl("workspace", "plane-project", "item-9"))
                 .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-9");
         when(jobRepository.save(any())).thenAnswer(invocation -> {
             SyncJobDocument job = invocation.getArgument(0);
@@ -85,12 +83,12 @@ class AdHocSyncFlowTest {
             return Optional.of(queued.get());
         });
 
-        SyncJobService jobService = new SyncJobService(jobRepository, configRepository, projectRepository, planeClient,
-                new PlaneProperties(URI.create("https://api.plane.so"), URI.create("https://app.plane.so"), "unused"));
-        WorkItemSyncService syncService = new WorkItemSyncService(planeClient, notionClient, mappingRepository);
+        SyncJobService jobService = new SyncJobService(jobRepository, configRepository, projectRepository, planeService,
+                TestData.integrationProperties());
+        WorkItemSyncService syncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
         SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository, syncService,
                 projectCatalogService, notionHierarchyService, new ScheduleService(jobRepository),
-                new AdHocNotionDestination("adhoc-page", "adhoc-database", AD_HOC_DATA_SOURCE_ID));
+                TestData.integrationProperties());
 
         SyncJobDocument manualJob = jobService.enqueueTask(
                 "https://app.plane.so/workspace/browse/DEMO-9", null, false);

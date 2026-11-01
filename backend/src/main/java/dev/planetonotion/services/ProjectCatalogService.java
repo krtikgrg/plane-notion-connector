@@ -1,9 +1,9 @@
-package dev.planetonotion.services.projects;
+package dev.planetonotion.services;
 
 import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.config.PlaneProperties;
+import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import java.net.URI;
@@ -23,14 +23,14 @@ public class ProjectCatalogService {
 
     private static final int MONGO_WRITE_BATCH_SIZE = 1000;
 
-    private final PlaneClient planeClient;
+    private final PlaneService planeService;
     private final PlaneProjectRepository projectRepository;
-    private final PlaneProperties planeProperties;
+    private final IntegrationProperties integrationProperties;
 
-    public ProjectCatalogService(PlaneClient planeClient, PlaneProjectRepository projectRepository, PlaneProperties planeProperties) {
-        this.planeClient = planeClient;
+    public ProjectCatalogService(PlaneService planeService, PlaneProjectRepository projectRepository, IntegrationProperties integrationProperties) {
+        this.planeService = planeService;
         this.projectRepository = projectRepository;
-        this.planeProperties = planeProperties;
+        this.integrationProperties = integrationProperties;
     }
 
     public List<PlaneProjectDocument> list(String workspaceSlug) {
@@ -47,7 +47,7 @@ public class ProjectCatalogService {
 
         Set<String> seen = new HashSet<>();
         List<PlaneProjectDocument> batch = new ArrayList<>(MONGO_WRITE_BATCH_SIZE);
-        planeClient.forEachProjectPage(validatedWorkspaceSlug, page -> {
+        planeService.forEachProjectPage(validatedWorkspaceSlug, page -> {
             for (JsonNode source : page) {
                 String projectId = source.path("id").asString("");
                 if (projectId.isBlank()) continue;
@@ -75,7 +75,7 @@ public class ProjectCatalogService {
         } catch (RuntimeException exception) {
             throw invalidProjectUrl();
         }
-        if (url.getHost() == null || !url.getHost().equalsIgnoreCase(planeProperties.appBaseUrl().getHost())
+        if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
                 || !("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme()))) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST", "Enter a project URL from the configured Plane instance.");
         }
@@ -85,7 +85,7 @@ public class ProjectCatalogService {
         }
         String workspaceSlug = parts[1];
         String projectId = parts[3];
-        JsonNode source = planeClient.getProject(workspaceSlug, projectId);
+        JsonNode source = planeService.getProject(workspaceSlug, projectId);
         PlaneProjectDocument existing = projectRepository
                 .findByWorkspaceSlugAndProjectId(workspaceSlug, source.path("id").asString(projectId)).orElse(null);
         return projectRepository.save(fromPlane(source, workspaceSlug, existing, Instant.now(), true, projectId));
@@ -98,7 +98,7 @@ public class ProjectCatalogService {
 
     public PlaneProjectDocument refreshProject(ObjectId projectRef) {
         PlaneProjectDocument existing = findById(projectRef);
-        JsonNode source = planeClient.getProject(existing.workspaceSlug(), existing.projectId());
+        JsonNode source = planeService.getProject(existing.workspaceSlug(), existing.projectId());
         return projectRepository.save(fromPlane(source, existing.workspaceSlug(), existing, Instant.now(), true,
                 existing.projectId()));
     }

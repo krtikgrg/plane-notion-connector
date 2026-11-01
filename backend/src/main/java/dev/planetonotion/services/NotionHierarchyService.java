@@ -1,13 +1,13 @@
-package dev.planetonotion.services.projects;
+package dev.planetonotion.services;
 
-import dev.planetonotion.common.config.NotionProperties;
-import dev.planetonotion.common.enums.ConfigStatus;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.exceptions.IntegrationException;
-import dev.planetonotion.integrations.notion.NotionClient;
+import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.mappings.SyncMappingRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.projects.PlaneWorkspaceRepository;
@@ -35,17 +35,17 @@ public class NotionHierarchyService {
     private final SyncConfigRepository configRepository;
     private final SyncMappingRepository mappingRepository;
     private final NotionClient notionClient;
-    private final NotionProperties notionProperties;
+    private final IntegrationProperties integrationProperties;
 
     public NotionHierarchyService(PlaneWorkspaceRepository workspaceRepository, PlaneProjectRepository projectRepository,
             SyncConfigRepository configRepository, SyncMappingRepository mappingRepository, NotionClient notionClient,
-            NotionProperties notionProperties) {
+            IntegrationProperties integrationProperties) {
         this.workspaceRepository = workspaceRepository;
         this.projectRepository = projectRepository;
         this.configRepository = configRepository;
         this.mappingRepository = mappingRepository;
         this.notionClient = notionClient;
-        this.notionProperties = notionProperties;
+        this.integrationProperties = integrationProperties;
     }
 
     public synchronized PlaneWorkspaceDocument ensureWorkspacePage(String workspaceSlug) {
@@ -126,7 +126,7 @@ public class NotionHierarchyService {
                 .map(summary -> List.of(summary.workspaceSlug(), Long.toString(summary.projectCount()),
                         statusBreakdown(summary.counts()), Long.toString(summary.workItemCount())))
                 .toList();
-        notionClient.upsertPageTableSummary(notionProperties.parentPageId(), "Workspace overview",
+        notionClient.upsertPageTableSummary(integrationProperties.notionParentPageId(), "Workspace overview",
                 List.of("Plane workspace rollup"), "Plane sync summary:", parentSummary,
                 List.of("Workspace", "Projects", "Project status", "Synced work items"), workspaceRows);
     }

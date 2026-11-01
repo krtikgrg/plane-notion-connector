@@ -1,10 +1,10 @@
-package dev.planetonotion.models.dto;
+package dev.planetonotion.models;
 
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.Instant;

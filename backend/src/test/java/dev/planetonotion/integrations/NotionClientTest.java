@@ -1,4 +1,4 @@
-package dev.planetonotion.integrations.notion;
+package dev.planetonotion.integrations;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,8 +11,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
-import dev.planetonotion.common.config.NotionProperties;
-import java.net.URI;
+import dev.planetonotion.TestData;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -35,8 +34,8 @@ class NotionClientTest {
     void createProjectDestination_createsParentPageAndDatasourceSchema() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
-                "unit-test-token", "parent-page-id"), builder);
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
 
         server.expect(requestTo("https://notion.test/v1/pages"))
                 .andExpect(method(HttpMethod.POST))
@@ -64,8 +63,8 @@ class NotionClientTest {
     void createProjectDestination_archivesPageWhenDatabaseCreationFails() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
-                "unit-test-token", "parent-page-id"), builder);
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
 
         server.expect(requestTo("https://notion.test/v1/pages"))
                 .andRespond(withSuccess("{\"id\":\"project-page-id\"}", MediaType.APPLICATION_JSON));
@@ -84,8 +83,8 @@ class NotionClientTest {
     void archivePage_reportsCleanupFailure() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
-                "unit-test-token", "parent-page-id"), builder);
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
 
         server.expect(requestTo("https://notion.test/v1/blocks/project-page-id"))
                 .andExpect(method(HttpMethod.DELETE))
@@ -100,8 +99,8 @@ class NotionClientTest {
     void upsertPageTableSummary_createsReadableSummaryTable() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
-        NotionClient client = new NotionClient(new NotionProperties(URI.create("https://notion.test"),
-                "unit-test-token", "parent-page-id"), builder);
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
 
         server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children?page_size=100"))
                 .andExpect(method(HttpMethod.GET))

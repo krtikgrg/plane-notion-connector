@@ -1,7 +1,7 @@
 package dev.planetonotion.repositories.sync;
 
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import java.util.List;
 import org.bson.types.ObjectId;

@@ -1,4 +1,4 @@
-package dev.planetonotion.services.config;
+package dev.planetonotion.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -10,18 +10,18 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doAnswer;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.notion.NotionClient;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
-import dev.planetonotion.services.projects.NotionHierarchyService;
-import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +38,7 @@ class ConfigServiceTest {
 
     @Mock private SyncConfigRepository configRepository;
     @Mock private PlaneProjectRepository projectRepository;
-    @Mock private PlaneClient planeClient;
+    @Mock private PlaneService planeService;
     @Mock private NotionClient notionClient;
     @Mock private NotionHierarchyService notionHierarchyService;
     @Mock private ScheduleService scheduleService;
@@ -47,7 +47,7 @@ class ConfigServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ConfigService(configRepository, projectRepository, planeClient, notionClient,
+        service = new ConfigService(configRepository, projectRepository, planeService, notionClient,
                 notionHierarchyService, scheduleService);
     }
 
@@ -60,9 +60,9 @@ class ConfigServiceTest {
         when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
-        when(planeClient.listWorkItemStates("demo-workspace", "plane-project"))
+        when(planeService.listWorkItemStates("demo-workspace", "plane-project"))
                 .thenReturn(List.of(TestData.json("{\"name\":\"Todo\"}")));
-        when(planeClient.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
         when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of("Todo"), List.of()))
                 .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
         when(configRepository.save(any())).thenAnswer(invocation -> TestData.withId(
@@ -108,8 +108,8 @@ class ConfigServiceTest {
         when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
-        when(planeClient.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(planeClient.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
         when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
                 .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -132,8 +132,8 @@ class ConfigServiceTest {
         when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
-        when(planeClient.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(planeClient.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
         when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
                 .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

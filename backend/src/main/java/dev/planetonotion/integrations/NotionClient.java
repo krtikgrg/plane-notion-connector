@@ -1,8 +1,9 @@
-package dev.planetonotion.integrations.notion;
+package dev.planetonotion.integrations;
 
 import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.config.NotionProperties;
+import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.integrations.HttpService;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -10,8 +11,6 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 
 @Component
 public class NotionClient {
@@ -19,28 +18,34 @@ public class NotionClient {
     private static final String NOTION_VERSION = "2026-03-11";
 
     private final RestClient client;
-    private final NotionProperties properties;
+    private final HttpService httpService;
+    private final IntegrationProperties properties;
 
     @Autowired
-    public NotionClient(NotionProperties properties) {
-        this(properties, RestClient.builder());
+    public NotionClient(IntegrationProperties properties, HttpService httpService) {
+        this(properties, RestClient.builder(), httpService);
     }
 
-    NotionClient(NotionProperties properties, RestClient.Builder builder) {
+    NotionClient(IntegrationProperties properties, RestClient.Builder builder) {
+        this(properties, builder, new HttpService());
+    }
+
+    private NotionClient(IntegrationProperties properties, RestClient.Builder builder, HttpService httpService) {
         this.properties = properties;
+        this.httpService = httpService;
         this.client = builder
-                .baseUrl(properties.apiBaseUrl().toString())
-                .defaultHeader("Authorization", "Bearer " + properties.connectionToken())
+                .baseUrl(properties.notionApiBaseUrl().toString())
+                .defaultHeader("Authorization", "Bearer " + properties.notionConnectionToken())
                 .defaultHeader("Notion-Version", NOTION_VERSION)
                 .build();
     }
 
     public String createWorkspacePage(String workspaceSlug) {
-        if (properties.parentPageId() == null || properties.parentPageId().isBlank()) {
+        if (properties.notionParentPageId() == null || properties.notionParentPageId().isBlank()) {
             throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0, "NOTION_PARENT_PAGE_ID is required to create workspace pages.");
         }
         JsonNode page = post("/v1/pages", Map.of(
-                "parent", Map.of("type", "page_id", "page_id", properties.parentPageId()),
+                "parent", Map.of("type", "page_id", "page_id", properties.notionParentPageId()),
                 "properties", Map.of("title", Map.of("title", richText("Plane Workspace — " + workspaceSlug)))));
         return requiredId(page, "Notion did not return the workspace page ID.");
     }
@@ -278,15 +283,8 @@ public class NotionClient {
 
     public void archivePage(String pageId) {
         requireToken();
-        try {
-            client.delete().uri("/v1/blocks/{block_id}", pageId).retrieve().toBodilessEntity();
-        } catch (RestClientResponseException exception) {
-            throw new IntegrationException("NOTION_ARCHIVE_FAILED", exception.getStatusCode().value(),
-                    "Notion could not archive the temporary project page.");
-        } catch (RestClientException exception) {
-            throw new IntegrationException("NOTION_ARCHIVE_FAILED", 0,
-                    "Notion could not archive the temporary project page.");
-        }
+        httpService.delete(client, "NOTION", "/v1/blocks/" + segment(pageId), "NOTION_ARCHIVE_FAILED",
+                "Notion could not archive the temporary project page.");
     }
 
     private void archivePageAfterFailure(String pageId, RuntimeException provisioningFailure) {
@@ -352,61 +350,26 @@ public class NotionClient {
 
     private JsonNode get(String path) {
         requireToken();
-        try {
-            JsonNode body = client.get().uri(path).retrieve().body(JsonNode.class);
-            if (body == null) throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, "Notion returned an empty response.");
-            return body;
-        } catch (RestClientResponseException exception) {
-            throw apiFailure(exception);
-        } catch (RestClientException exception) {
-            throw new IntegrationException("NOTION_UNAVAILABLE", 0, "Could not connect to the configured Notion API.");
-        }
+        return httpService.get(client, "NOTION", path);
     }
 
     private JsonNode post(String path, Object body) {
         requireToken();
-        try {
-            JsonNode response = client.post().uri(path).body(body).retrieve().body(JsonNode.class);
-            if (response == null) throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, "Notion returned an empty response.");
-            return response;
-        } catch (RestClientResponseException exception) {
-            throw apiFailure(exception);
-        } catch (RestClientException exception) {
-            throw new IntegrationException("NOTION_UNAVAILABLE", 0, "Could not connect to the configured Notion API.");
-        }
+        return httpService.post(client, "NOTION", path, body);
     }
 
     private void patch(String path, Object body) {
         requireToken();
-        try {
-            client.patch().uri(path).body(body).retrieve().toBodilessEntity();
-        } catch (RestClientResponseException exception) {
-            throw apiFailure(exception);
-        } catch (RestClientException exception) {
-            throw new IntegrationException("NOTION_UNAVAILABLE", 0, "Could not connect to the configured Notion API.");
-        }
+        httpService.patchWithoutResponse(client, "NOTION", path, body);
     }
 
     private JsonNode patchForResponse(String path, Object body) {
         requireToken();
-        try {
-            JsonNode response = client.patch().uri(path).body(body).retrieve().body(JsonNode.class);
-            if (response == null) throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, "Notion returned an empty response.");
-            return response;
-        } catch (RestClientResponseException exception) {
-            throw apiFailure(exception);
-        } catch (RestClientException exception) {
-            throw new IntegrationException("NOTION_UNAVAILABLE", 0, "Could not connect to the configured Notion API.");
-        }
-    }
-
-    private IntegrationException apiFailure(RestClientResponseException exception) {
-        int status = exception.getStatusCode().value();
-        return new IntegrationException("NOTION_API_ERROR", status, "Notion API request failed (HTTP " + status + ").");
+        return httpService.patch(client, "NOTION", path, body);
     }
 
     private void requireToken() {
-        if (properties.connectionToken() == null || properties.connectionToken().isBlank()) {
+        if (properties.notionConnectionToken() == null || properties.notionConnectionToken().isBlank()) {
             throw new IntegrationException("NOTION_TOKEN_MISSING", 0, "NOTION_CONNECTION_API_TOKEN is not configured.");
         }
     }

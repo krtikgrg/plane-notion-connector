@@ -1,4 +1,4 @@
-package dev.planetonotion.services.projects;
+package dev.planetonotion.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -7,8 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.config.PlaneProperties;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import java.net.URI;
@@ -27,7 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ProjectCatalogServiceTest {
 
-    @Mock private PlaneClient planeClient;
+    @Mock private PlaneService planeService;
     @Mock private PlaneProjectRepository projectRepository;
 
     @Test
@@ -42,7 +41,7 @@ class ProjectCatalogServiceTest {
                 TestData.json("{\"id\":\"fresh-project\",\"name\":\"Fresh\",\"identifier\":\"NEW\",\"archived_at\":null}"),
                 TestData.json("{\"id\":\"archived-project\",\"name\":\"Archived\",\"identifier\":\"OLD\",\"archived_at\":\"2026-10-30T10:00:00Z\"}")));
             return null;
-        }).when(planeClient).forEachProjectPage(org.mockito.ArgumentMatchers.eq("demo-workspace"), any());
+        }).when(planeService).forEachProjectPage(org.mockito.ArgumentMatchers.eq("demo-workspace"), any());
         doAnswer(invocation -> {
             List<PlaneProjectDocument> batch = invocation.getArgument(0);
             Map<String, PlaneProjectDocument> allSaved = new LinkedHashMap<>();
@@ -51,8 +50,8 @@ class ProjectCatalogServiceTest {
             saved.set(new ArrayList<>(allSaved.values()));
             return null;
         }).when(projectRepository).bulkUpsert(anyList());
-        ProjectCatalogService service = new ProjectCatalogService(planeClient, projectRepository,
-                new PlaneProperties(URI.create("https://api.plane.so"), URI.create("https://app.plane.so"), "unused"));
+        ProjectCatalogService service = new ProjectCatalogService(planeService, projectRepository,
+                TestData.integrationProperties());
 
         List<PlaneProjectDocument> refreshed = service.refresh("demo-workspace");
 

@@ -1,6 +1,6 @@
 package dev.planetonotion.controllers;
 
-import dev.planetonotion.models.dto.ApiDtos.HealthResponse;
+import dev.planetonotion.models.ApiDtos.HealthResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;

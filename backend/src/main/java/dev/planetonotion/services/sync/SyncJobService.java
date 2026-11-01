@@ -1,17 +1,17 @@
 package dev.planetonotion.services.sync;
 
 import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.config.PlaneProperties;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepositoryCustom;
@@ -30,16 +30,16 @@ public class SyncJobService {
     private final SyncJobRepository jobRepository;
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
-    private final PlaneClient planeClient;
-    private final PlaneProperties planeProperties;
+    private final PlaneService planeService;
+    private final IntegrationProperties integrationProperties;
 
     public SyncJobService(SyncJobRepository jobRepository, SyncConfigRepository configRepository,
-            PlaneProjectRepository projectRepository, PlaneClient planeClient, PlaneProperties planeProperties) {
+            PlaneProjectRepository projectRepository, PlaneService planeService, IntegrationProperties integrationProperties) {
         this.jobRepository = jobRepository;
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
-        this.planeClient = planeClient;
-        this.planeProperties = planeProperties;
+        this.planeService = planeService;
+        this.integrationProperties = integrationProperties;
     }
 
     public SyncJobDocument enqueueProject(ObjectId configId, boolean forceArchivedConfig) {
@@ -52,8 +52,8 @@ public class SyncJobService {
     public SyncJobDocument enqueueTask(String taskUrl, ObjectId requestedConfigId, boolean forceArchivedConfig) {
         TaskUrl taskUrlParts = parseTaskUrl(taskUrl);
         JsonNode item = taskUrlParts.identifier() != null
-                ? planeClient.getWorkItemByIdentifier(taskUrlParts.workspaceSlug(), taskUrlParts.identifier())
-                : planeClient.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(), taskUrlParts.workItemId());
+                ? planeService.getWorkItemByIdentifier(taskUrlParts.workspaceSlug(), taskUrlParts.identifier())
+                : planeService.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(), taskUrlParts.workItemId());
         if (item.path("is_draft").asBoolean(false)) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "DRAFT_WORK_ITEM", "A draft work item cannot be synced.");
         }
@@ -111,7 +111,7 @@ public class SyncJobService {
 
     private PlaneProjectDocument findOrCacheProject(String workspaceSlug, String projectId) {
         return projectRepository.findByWorkspaceSlugAndProjectId(workspaceSlug, projectId).orElseGet(() -> {
-            JsonNode source = planeClient.getProject(workspaceSlug, projectId);
+            JsonNode source = planeService.getProject(workspaceSlug, projectId);
             Instant now = Instant.now();
             JsonNode archivedAt = source.path("archived_at");
             boolean isArchived = !archivedAt.isMissingNode() ? !archivedAt.isNull()
@@ -148,7 +148,7 @@ public class SyncJobService {
         } catch (RuntimeException exception) {
             throw invalidTaskUrl();
         }
-        if (url.getHost() == null || !url.getHost().equalsIgnoreCase(planeProperties.appBaseUrl().getHost())
+        if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
                 || !("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme()))) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST", "Enter a task URL from the configured Plane instance.");
         }

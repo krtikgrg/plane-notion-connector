@@ -1,19 +1,19 @@
-package dev.planetonotion.services.config;
+package dev.planetonotion.services;
 
 import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.notion.NotionClient;
-import dev.planetonotion.integrations.notion.NotionClient.ProjectDestination;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.integrations.NotionClient.ProjectDestination;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
-import dev.planetonotion.services.projects.NotionHierarchyService;
-import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -32,17 +32,17 @@ public class ConfigService {
 
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
-    private final PlaneClient planeClient;
+    private final PlaneService planeService;
     private final NotionClient notionClient;
     private final NotionHierarchyService notionHierarchyService;
     private final ScheduleService scheduleService;
 
     public ConfigService(SyncConfigRepository configRepository, PlaneProjectRepository projectRepository,
-            PlaneClient planeClient, NotionClient notionClient, NotionHierarchyService notionHierarchyService,
+            PlaneService planeService, NotionClient notionClient, NotionHierarchyService notionHierarchyService,
             ScheduleService scheduleService) {
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
-        this.planeClient = planeClient;
+        this.planeService = planeService;
         this.notionClient = notionClient;
         this.notionHierarchyService = notionHierarchyService;
         this.scheduleService = scheduleService;
@@ -69,8 +69,8 @@ public class ConfigService {
 
         String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.workspaceSlug()).notionPageId();
         ProjectDestination destination = notionClient.createProjectDestination(workspacePageId,
-                project.name(), names(planeClient.listWorkItemStates(project.workspaceSlug(), project.projectId())),
-                names(planeClient.listWorkItemLabels(project.workspaceSlug(), project.projectId())));
+                project.name(), names(planeService.listWorkItemStates(project.workspaceSlug(), project.projectId())),
+                names(planeService.listWorkItemLabels(project.workspaceSlug(), project.projectId())));
         Instant now = Instant.now();
         ConfigStatus status = input.status() == null ? ConfigStatus.ACTIVE : input.status();
         ObjectId configId = new ObjectId();

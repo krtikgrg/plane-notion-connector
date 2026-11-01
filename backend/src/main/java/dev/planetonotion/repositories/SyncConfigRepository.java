@@ -1,4 +1,4 @@
-package dev.planetonotion.repositories.config;
+package dev.planetonotion.repositories;
 
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import java.util.List;

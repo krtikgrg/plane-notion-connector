@@ -10,26 +10,24 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.common.config.AdHocNotionDestination;
-import dev.planetonotion.common.config.PlaneProperties;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
-import dev.planetonotion.integrations.notion.NotionClient;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.mappings.SyncMappingRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
-import dev.planetonotion.services.projects.NotionHierarchyService;
-import dev.planetonotion.services.projects.ProjectCatalogService;
-import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.ProjectCatalogService;
+import dev.planetonotion.services.ScheduleService;
 import dev.planetonotion.services.sync.SyncJobService;
 import dev.planetonotion.services.sync.SyncJobWorker;
 import dev.planetonotion.services.sync.WorkItemSyncService;
@@ -54,7 +52,7 @@ class SyncProcessingFlowTest {
     @Mock private SyncConfigRepository configRepository;
     @Mock private PlaneProjectRepository projectRepository;
     @Mock private SyncMappingRepository mappingRepository;
-    @Mock private PlaneClient planeClient;
+    @Mock private PlaneService planeService;
     @Mock private NotionClient notionClient;
     @Mock private ProjectCatalogService projectCatalogService;
     @Mock private NotionHierarchyService notionHierarchyService;
@@ -86,7 +84,7 @@ class SyncProcessingFlowTest {
         when(jobRepository.findByConfigIdAndTriggerTypeAndStatusOrderByScheduledForAsc(
                 configId, SyncJobType.SCHEDULED, SyncJobStatus.PENDING)).thenReturn(List.of());
 
-        when(planeClient.listWorkItemStates("workspace", "plane-project"))
+        when(planeService.listWorkItemStates("workspace", "plane-project"))
                 .thenReturn(List.of(TestData.json("{\"id\":\"state-1\",\"name\":\"Todo\"}")));
         doAnswer(invocation -> {
             Consumer<List<tools.jackson.databind.JsonNode>> pageConsumer = invocation.getArgument(4);
@@ -96,10 +94,10 @@ class SyncProcessingFlowTest {
                  "archived_at":null,"description_html":"<p>Useful work</p>","assignees":[],"labels":[]}
                 """)));
             return null;
-        }).when(planeClient).forEachProjectWorkItemPage(org.mockito.ArgumentMatchers.eq("workspace"),
+        }).when(planeService).forEachProjectWorkItemPage(org.mockito.ArgumentMatchers.eq("workspace"),
                 org.mockito.ArgumentMatchers.eq("plane-project"), eq(previousProjectRunStart.minusMillis(100)), any(), any());
-        when(planeClient.listWorkItemLabels("workspace", "plane-project")).thenReturn(List.of());
-        when(planeClient.workItemUrl("workspace", "plane-project", "item-1"))
+        when(planeService.listWorkItemLabels("workspace", "plane-project")).thenReturn(List.of());
+        when(planeService.workItemUrl("workspace", "plane-project", "item-1"))
                 .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-1");
         when(mappingRepository.findByTargetDataSourceIdAndSourceIdIn("notion-data-source", List.of("item-1")))
                 .thenReturn(List.of());
@@ -107,13 +105,12 @@ class SyncProcessingFlowTest {
         org.mockito.Mockito.doNothing().when(notionHierarchyService).synchronizeProjectPage(project, config);
 
         ScheduleService scheduleService = new ScheduleService(jobRepository);
-        WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeClient, notionClient, mappingRepository);
+        WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
         SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository,
                 workItemSyncService, projectCatalogService, notionHierarchyService, scheduleService,
-                new AdHocNotionDestination("adhoc-page", "adhoc-database", "adhoc-data-source"));
+                TestData.integrationProperties());
         SyncJobService jobService = new SyncJobService(jobRepository, configRepository, projectRepository,
-                planeClient, new PlaneProperties(URI.create("https://api.plane.so"),
-                        URI.create("https://app.plane.so"), "unused"));
+                planeService, TestData.integrationProperties());
 
         SyncJobDocument queuedJob = jobService.enqueueProject(configId, false);
         assertThat(queuedJob.status()).isEqualTo(SyncJobStatus.PENDING);
@@ -134,7 +131,7 @@ class SyncProcessingFlowTest {
         verify(notionClient).ensureWorkItemOptions("notion-data-source", List.of("Todo"), List.of());
         ArgumentCaptor<Instant> lowerBound = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> upperBound = ArgumentCaptor.forClass(Instant.class);
-        verify(planeClient).forEachProjectWorkItemPage(eq("workspace"), eq("plane-project"),
+        verify(planeService).forEachProjectWorkItemPage(eq("workspace"), eq("plane-project"),
                 lowerBound.capture(), upperBound.capture(), any());
         assertThat(lowerBound.getValue()).isEqualTo(previousProjectRunStart.minusMillis(100));
         assertThat(upperBound.getValue()).isAfter(previousProjectRunStart);

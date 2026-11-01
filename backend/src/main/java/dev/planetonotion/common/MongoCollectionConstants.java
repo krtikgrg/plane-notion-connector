@@ -1,6 +1,6 @@
-package dev.planetonotion.common.constants;
+package dev.planetonotion.common;
 
-public final class MongoCollections {
+public final class MongoCollectionConstants {
 
     public static final String PLANE_PROJECTS = "plane_projects";
     public static final String PLANE_WORKSPACES = "plane_workspaces";
@@ -8,6 +8,6 @@ public final class MongoCollections {
     public static final String SYNC_JOBS = "sync_jobs";
     public static final String SYNC_MAPPINGS = "sync_mappings";
 
-    private MongoCollections() {
+    private MongoCollectionConstants() {
     }
 }

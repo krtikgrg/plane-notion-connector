@@ -1,8 +1,8 @@
 package dev.planetonotion.models.documents;
 
-import dev.planetonotion.common.constants.MongoCollections;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.ScheduleType;
+import dev.planetonotion.common.MongoCollectionConstants;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
@@ -13,7 +13,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
-@Document(collection = MongoCollections.SYNC_CONFIGS)
+@Document(collection = MongoCollectionConstants.SYNC_CONFIGS)
 public record SyncConfigDocument(
         @Id ObjectId id,
         ConfigStatus status,

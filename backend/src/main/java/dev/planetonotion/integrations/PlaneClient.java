@@ -1,7 +1,8 @@
-package dev.planetonotion.integrations.plane;
+package dev.planetonotion.integrations;
 
 import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.config.PlaneProperties;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.integrations.HttpService;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -14,8 +15,6 @@ import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
@@ -24,18 +23,24 @@ public class PlaneClient {
     private static final int PLANE_API_PAGE_SIZE = 200;
 
     private final RestClient client;
-    private final PlaneProperties properties;
+    private final HttpService httpService;
+    private final IntegrationProperties properties;
 
     @Autowired
-    public PlaneClient(PlaneProperties properties) {
-        this(properties, RestClient.builder());
+    public PlaneClient(IntegrationProperties properties, HttpService httpService) {
+        this(properties, RestClient.builder(), httpService);
     }
 
-    PlaneClient(PlaneProperties properties, RestClient.Builder builder) {
+    PlaneClient(IntegrationProperties properties, RestClient.Builder builder) {
+        this(properties, builder, new HttpService());
+    }
+
+    private PlaneClient(IntegrationProperties properties, RestClient.Builder builder, HttpService httpService) {
         this.properties = properties;
+        this.httpService = httpService;
         this.client = builder
-                .baseUrl(properties.apiBaseUrl().toString())
-                .defaultHeader("X-Api-Key", properties.personalAccessToken())
+                .baseUrl(properties.planeApiBaseUrl().toString())
+                .defaultHeader("X-Api-Key", properties.planePersonalAccessToken())
                 .build();
     }
 
@@ -115,7 +120,7 @@ public class PlaneClient {
         String cursor = null;
         boolean cursorPagination = "cursor".equals(filters.get("paginate"));
         while (true) {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.apiBaseUrl())
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.planeApiBaseUrl())
                     .path(pathTemplate)
                     .queryParam("per_page", PLANE_API_PAGE_SIZE);
             if (!cursorPagination) builder.queryParam("count", "false");
@@ -158,29 +163,14 @@ public class PlaneClient {
     }
 
     private JsonNode get(String path) {
-        return get(URI.create(properties.apiBaseUrl().toString().replaceAll("/$", "") + path));
+        return get(URI.create(properties.planeApiBaseUrl().toString().replaceAll("/$", "") + path));
     }
 
     private JsonNode get(URI uri) {
-        if (properties.personalAccessToken() == null || properties.personalAccessToken().isBlank()) {
+        if (properties.planePersonalAccessToken() == null || properties.planePersonalAccessToken().isBlank()) {
             throw new IntegrationException("PLANE_TOKEN_MISSING", 0, "PLANE_PERSONAL_ACCESS_TOKEN is not configured.");
         }
-        try {
-            JsonNode body = client.get().uri(uri).retrieve().body(JsonNode.class);
-            if (body == null) {
-                throw new IntegrationException("PLANE_RESPONSE_INVALID", 502, "Plane returned an empty response.");
-            }
-            return body;
-        } catch (RestClientResponseException exception) {
-            throw apiFailure(exception);
-        } catch (RestClientException exception) {
-            throw new IntegrationException("PLANE_UNAVAILABLE", 0, "Could not connect to the configured Plane API.");
-        }
-    }
-
-    private IntegrationException apiFailure(RestClientResponseException exception) {
-        int status = exception.getStatusCode().value();
-        return new IntegrationException("PLANE_API_ERROR", status, "Plane API request failed (HTTP " + status + ").");
+        return httpService.get(client, "PLANE", uri);
     }
 
     private String segment(String value) {
@@ -188,6 +178,6 @@ public class PlaneClient {
     }
 
     private String appBaseUrl() {
-        return properties.appBaseUrl().toString().replaceAll("/$", "");
+        return properties.planeAppBaseUrl().toString().replaceAll("/$", "");
     }
 }

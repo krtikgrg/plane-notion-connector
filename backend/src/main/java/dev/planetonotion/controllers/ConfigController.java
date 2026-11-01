@@ -1,22 +1,22 @@
-package dev.planetonotion.controllers.config;
+package dev.planetonotion.controllers;
 
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.utils.MongoIdParser;
-import dev.planetonotion.integrations.plane.PlaneClient;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.MongoIdParser;
+import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
-import dev.planetonotion.models.dto.ApiDtos.ConfigResponse;
-import dev.planetonotion.models.dto.ApiDtos.CreateConfigRequest;
-import dev.planetonotion.models.dto.ApiDtos.EnqueuedJobResponse;
-import dev.planetonotion.models.dto.ApiDtos.JobResponse;
-import dev.planetonotion.models.dto.ApiDtos.JobHistoryResponse;
-import dev.planetonotion.models.dto.ApiDtos.ManualProjectSyncRequest;
-import dev.planetonotion.models.dto.ApiDtos.ProjectResponse;
-import dev.planetonotion.models.dto.ApiDtos.UpdateConfigRequest;
-import dev.planetonotion.services.config.ConfigService;
-import dev.planetonotion.services.projects.ProjectCatalogService;
+import dev.planetonotion.models.ApiDtos.ConfigResponse;
+import dev.planetonotion.models.ApiDtos.CreateConfigRequest;
+import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
+import dev.planetonotion.models.ApiDtos.JobResponse;
+import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
+import dev.planetonotion.models.ApiDtos.ManualProjectSyncRequest;
+import dev.planetonotion.models.ApiDtos.ProjectResponse;
+import dev.planetonotion.models.ApiDtos.UpdateConfigRequest;
+import dev.planetonotion.services.ConfigService;
+import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -42,14 +42,14 @@ public class ConfigController {
 
     private final ConfigService configService;
     private final ProjectCatalogService projectCatalogService;
-    private final PlaneClient planeClient;
+    private final PlaneService planeService;
     private final SyncJobService syncJobService;
 
     public ConfigController(ConfigService configService, ProjectCatalogService projectCatalogService,
-            PlaneClient planeClient, SyncJobService syncJobService) {
+            PlaneService planeService, SyncJobService syncJobService) {
         this.configService = configService;
         this.projectCatalogService = projectCatalogService;
-        this.planeClient = planeClient;
+        this.planeService = planeService;
         this.syncJobService = syncJobService;
     }
 
@@ -118,7 +118,7 @@ public class ConfigController {
         if (project == null) project = projectCatalogService.findById(config.planeProjectRef());
         ProjectResponse projectResponse = new ProjectResponse(project.id().toHexString(), project.workspaceSlug(),
                 project.projectId(), project.name(), project.identifier(),
-                planeClient.projectUrl(project.workspaceSlug(), project.projectId()),
+                planeService.projectUrl(project.workspaceSlug(), project.projectId()),
                 project.isArchived(), project.isAvailable(), project.lastRefreshedAt());
         return new ConfigResponse(config.id().toHexString(), config.status(), projectResponse,
                 config.notionProjectPageId(), config.notionDatabaseId(), config.notionDataSourceId(),

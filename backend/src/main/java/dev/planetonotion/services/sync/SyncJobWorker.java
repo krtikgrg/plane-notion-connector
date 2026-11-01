@@ -1,20 +1,20 @@
 package dev.planetonotion.services.sync;
 
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.ConfigStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.config.AdHocNotionDestination;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
-import dev.planetonotion.repositories.config.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
-import dev.planetonotion.services.projects.NotionHierarchyService;
-import dev.planetonotion.services.projects.ProjectCatalogService;
-import dev.planetonotion.services.scheduling.ScheduleService;
+import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.ProjectCatalogService;
+import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
@@ -36,12 +36,12 @@ public class SyncJobWorker {
     private final ProjectCatalogService projectCatalogService;
     private final NotionHierarchyService notionHierarchyService;
     private final ScheduleService scheduleService;
-    private final AdHocNotionDestination adHocNotionDestination;
+    private final IntegrationProperties integrationProperties;
 
     public SyncJobWorker(SyncJobRepository jobRepository, SyncConfigRepository configRepository,
             PlaneProjectRepository projectRepository, WorkItemSyncService workItemSyncService,
             ProjectCatalogService projectCatalogService, NotionHierarchyService notionHierarchyService,
-            ScheduleService scheduleService, AdHocNotionDestination adHocNotionDestination) {
+            ScheduleService scheduleService, IntegrationProperties integrationProperties) {
         this.jobRepository = jobRepository;
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
@@ -49,7 +49,7 @@ public class SyncJobWorker {
         this.projectCatalogService = projectCatalogService;
         this.notionHierarchyService = notionHierarchyService;
         this.scheduleService = scheduleService;
-        this.adHocNotionDestination = adHocNotionDestination;
+        this.integrationProperties = integrationProperties;
     }
 
     @Scheduled(fixedDelayString = "${sync.worker.poll-interval-ms:5000}")
@@ -87,14 +87,14 @@ public class SyncJobWorker {
         PlaneProjectDocument project = projectRepository.findById(job.planeProjectRef())
                 .orElseThrow(() -> new ServiceException(org.springframework.http.HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The Plane project was not found."));
         if (job.configId() == null) {
-            if (job.syncScope() != dev.planetonotion.common.enums.SyncScope.WORK_ITEM) {
+            if (job.syncScope() != dev.planetonotion.common.PlaneToNotionEnums.SyncScope.WORK_ITEM) {
                 throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING", "A sync destination is required.");
             }
-            if (adHocNotionDestination.dataSourceId() == null || adHocNotionDestination.dataSourceId().isBlank()) {
+            if (integrationProperties.notionAdHocDataSourceId() == null || integrationProperties.notionAdHocDataSourceId().isBlank()) {
                 throw new ServiceException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                         "NOTION_CONFIGURATION_MISSING", "NOTION_AD_HOC_DATA_SOURCE_ID is required for ad-hoc syncs.");
             }
-            return workItemSyncService.syncOneAdHoc(project, job.workItemId(), adHocNotionDestination.dataSourceId(),
+            return workItemSyncService.syncOneAdHoc(project, job.workItemId(), integrationProperties.notionAdHocDataSourceId(),
                     progress::set);
         }
         SyncConfigDocument config = configRepository.findById(job.configId())
@@ -105,7 +105,7 @@ public class SyncJobWorker {
         }
         project = projectCatalogService.refreshProject(project.id());
         notionHierarchyService.synchronizeProjectPage(project, config);
-        if (job.syncScope() == dev.planetonotion.common.enums.SyncScope.PROJECT) {
+        if (job.syncScope() == dev.planetonotion.common.PlaneToNotionEnums.SyncScope.PROJECT) {
             Instant upperCutoff = job.startedAt() == null ? Instant.now() : job.startedAt();
             Instant checkpoint = jobRepository.findLatestSuccessfulProjectSyncStart(config.id())
                     .map(startedAt -> startedAt.minus(CHECKPOINT_OVERLAP)).orElse(null);

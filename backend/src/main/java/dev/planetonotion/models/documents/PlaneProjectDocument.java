@@ -1,6 +1,6 @@
 package dev.planetonotion.models.documents;
 
-import dev.planetonotion.common.constants.MongoCollections;
+import dev.planetonotion.common.MongoCollectionConstants;
 import java.time.Instant;
 import org.bson.types.ObjectId;
 import org.springframework.data.annotation.Id;
@@ -8,7 +8,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
-@Document(collection = MongoCollections.PLANE_PROJECTS)
+@Document(collection = MongoCollectionConstants.PLANE_PROJECTS)
 @CompoundIndex(name = "workspace_project_unique", def = "{'workspace_slug': 1, 'project_id': 1}", unique = true)
 public record PlaneProjectDocument(
         @Id ObjectId id,

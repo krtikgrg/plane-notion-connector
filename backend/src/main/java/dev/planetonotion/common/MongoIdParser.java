@@ -1,4 +1,4 @@
-package dev.planetonotion.common.utils;
+package dev.planetonotion.common;
 
 import dev.planetonotion.common.exceptions.ServiceException;
 import org.bson.types.ObjectId;

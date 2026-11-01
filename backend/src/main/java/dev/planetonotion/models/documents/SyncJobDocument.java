@@ -1,9 +1,9 @@
 package dev.planetonotion.models.documents;
 
-import dev.planetonotion.common.constants.MongoCollections;
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
-import dev.planetonotion.common.enums.SyncScope;
+import dev.planetonotion.common.MongoCollectionConstants;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import java.time.Instant;
 import org.bson.types.ObjectId;
 import org.springframework.data.annotation.Id;
@@ -11,7 +11,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
-@Document(collection = MongoCollections.SYNC_JOBS)
+@Document(collection = MongoCollectionConstants.SYNC_JOBS)
 @CompoundIndex(name = "job_claim_idx", def = "{'status': 1, 'created_at': 1, 'scheduled_for': 1}")
 @CompoundIndex(name = "config_runs_id_idx", def = "{'config_id': 1, '_id': -1}")
 @CompoundIndex(name = "runs_status_trigger_id_idx", def = "{'status': 1, 'trigger_type': 1, '_id': -1}")

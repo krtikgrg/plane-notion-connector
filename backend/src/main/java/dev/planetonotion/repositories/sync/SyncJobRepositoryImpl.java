@@ -1,7 +1,7 @@
 package dev.planetonotion.repositories.sync;
 
-import dev.planetonotion.common.enums.SyncJobStatus;
-import dev.planetonotion.common.enums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -50,7 +50,7 @@ public class SyncJobRepositoryImpl implements SyncJobRepositoryCustom {
     public Optional<Instant> findLatestSuccessfulProjectSyncStart(ObjectId configId) {
         Query query = Query.query(new Criteria().andOperator(
                 Criteria.where("config_id").is(configId),
-                Criteria.where("sync_scope").is(dev.planetonotion.common.enums.SyncScope.PROJECT),
+                Criteria.where("sync_scope").is(dev.planetonotion.common.PlaneToNotionEnums.SyncScope.PROJECT),
                 Criteria.where("status").is(SyncJobStatus.SUCCESS),
                 Criteria.where("started_at").exists(true)));
         query.with(Sort.by(Sort.Order.desc("started_at"))).limit(1);

@@ -13,19 +13,16 @@ spring:
 server:
   address: ${SERVER_ADDRESS:127.0.0.1}
 
-plane:
-  api-base-url: ${PLANE_API_BASE_URL:https://api.plane.so}
-  app-base-url: ${PLANE_APP_BASE_URL:https://app.plane.so}
-  personal-access-token: ${PLANE_PERSONAL_ACCESS_TOKEN:}
-
-notion:
-  api-base-url: ${NOTION_API_BASE_URL:https://api.notion.com}
-  connection-token: ${NOTION_CONNECTION_API_TOKEN:${NOTION_CONNECTION_TOKEN:${NOTION_PERSONAL_ACCESS_TOKEN:}}}
-  parent-page-id: ${NOTION_PARENT_PAGE_ID:}
-  ad-hoc:
-    page-id: ${NOTION_AD_HOC_PAGE_ID:}
-    database-id: ${NOTION_AD_HOC_DATABASE_ID:}
-    data-source-id: ${NOTION_AD_HOC_DATA_SOURCE_ID:}
+integration:
+  plane-api-base-url: ${PLANE_API_BASE_URL:https://api.plane.so}
+  plane-app-base-url: ${PLANE_APP_BASE_URL:https://app.plane.so}
+  plane-personal-access-token: ${PLANE_PERSONAL_ACCESS_TOKEN:}
+  notion-api-base-url: ${NOTION_API_BASE_URL:https://api.notion.com}
+  notion-connection-token: ${NOTION_CONNECTION_API_TOKEN:${NOTION_CONNECTION_TOKEN:${NOTION_PERSONAL_ACCESS_TOKEN:}}}
+  notion-parent-page-id: ${NOTION_PARENT_PAGE_ID:}
+  notion-ad-hoc-page-id: ${NOTION_AD_HOC_PAGE_ID:}
+  notion-ad-hoc-database-id: ${NOTION_AD_HOC_DATABASE_ID:}
+  notion-ad-hoc-data-source-id: ${NOTION_AD_HOC_DATA_SOURCE_ID:}
 
 sync:
   worker:
