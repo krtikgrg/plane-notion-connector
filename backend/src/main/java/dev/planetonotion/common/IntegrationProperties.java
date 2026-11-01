@@ -11,7 +11,7 @@ public record IntegrationProperties(
         URI notionApiBaseUrl,
         String notionConnectionToken,
         String notionParentPageId,
-        String notionAdHocPageId,
-        String notionAdHocDatabaseId,
-        String notionAdHocDataSourceId) {
+        String legacyNotionAdHocPageId,
+        String legacyNotionAdHocDatabaseId,
+        String legacyNotionAdHocDataSourceId) {
 }

@@ -53,7 +53,16 @@ public class NotionClient {
     public ProjectDestination createProjectDestination(String workspacePageId, String projectName,
             List<String> states, List<String> labels) {
         return createDestination(workspacePageId, projectName, "Plane Work Items",
-                taskProperties(states, labels), "Notion did not return the project page ID.");
+                taskProperties(states, labels, false), "Notion did not return the project page ID.");
+    }
+
+    public ProjectDestination createAdHocDestination() {
+        if (properties.notionParentPageId() == null || properties.notionParentPageId().isBlank()) {
+            throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0,
+                    "NOTION_PARENT_PAGE_ID is required to create the shared manual-sync destination.");
+        }
+        return createDestination(properties.notionParentPageId(), "Plane Manual Syncs", "Plane Work Items",
+                taskProperties(List.of(), List.of(), true), "Notion did not return the shared manual-sync page ID.");
     }
 
     public void synchronizeProjectPage(String pageId, String projectName, String workspacePageId) {
@@ -299,10 +308,10 @@ public class NotionClient {
         }
     }
 
-    private Map<String, Object> taskProperties(List<String> states, List<String> labels) {
+    private Map<String, Object> taskProperties(List<String> states, List<String> labels, boolean includeProjectIdentity) {
         Map<String, Object> lifecycle = Map.of("select", Map.of("options", optionObjects(List.of(
                 "ACTIVE", "ARCHIVED_IN_PLANE", "MISSING_FROM_PROJECT"))));
-        return Map.ofEntries(
+        Map<String, Object> properties = new java.util.LinkedHashMap<>(Map.ofEntries(
                 Map.entry("name", Map.of("title", Map.of())),
                 Map.entry("identifier", Map.of("rich_text", Map.of())),
                 Map.entry("work_item_id", Map.of("rich_text", Map.of())),
@@ -314,7 +323,14 @@ public class NotionClient {
                 Map.entry("labels", Map.of("multi_select", Map.of("options", optionObjects(labels)))),
                 Map.entry("due_date", Map.of("date", Map.of())),
                 Map.entry("plane_updated_at", Map.of("date", Map.of())),
-                Map.entry("plane_lifecycle", lifecycle));
+                Map.entry("plane_lifecycle", lifecycle)));
+        if (includeProjectIdentity) {
+            properties.put("workspace_slug", Map.of("rich_text", Map.of()));
+            properties.put("project_id", Map.of("rich_text", Map.of()));
+            properties.put("project_identifier", Map.of("rich_text", Map.of()));
+            properties.put("project_name", Map.of("rich_text", Map.of()));
+        }
+        return properties;
     }
 
     private List<Map<String, String>> optionObjects(List<String> names) {

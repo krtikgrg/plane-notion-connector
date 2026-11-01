@@ -26,6 +26,7 @@ import dev.planetonotion.repositories.mappings.SyncMappingRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
 import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.AdHocNotionDestinationService;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.ScheduleService;
 import dev.planetonotion.services.sync.SyncJobService;
@@ -56,6 +57,7 @@ class SyncProcessingFlowTest {
     @Mock private NotionClient notionClient;
     @Mock private ProjectCatalogService projectCatalogService;
     @Mock private NotionHierarchyService notionHierarchyService;
+    @Mock private AdHocNotionDestinationService adHocDestinationService;
 
     @Test
     void queuedProjectSync_fetchesPlaneItemsCreatesNotionPageAndMarksRunSuccessful() {
@@ -108,7 +110,7 @@ class SyncProcessingFlowTest {
         WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
         SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository,
                 workItemSyncService, projectCatalogService, notionHierarchyService, scheduleService,
-                TestData.integrationProperties());
+                adHocDestinationService);
         SyncJobService jobService = new SyncJobService(jobRepository, configRepository, projectRepository,
                 planeService, TestData.integrationProperties());
 

@@ -11,6 +11,7 @@ import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.models.documents.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
@@ -18,6 +19,7 @@ import dev.planetonotion.repositories.mappings.SyncMappingRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
 import dev.planetonotion.services.NotionHierarchyService;
+import dev.planetonotion.services.AdHocNotionDestinationService;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.ScheduleService;
 import dev.planetonotion.services.sync.SyncJobService;
@@ -48,6 +50,7 @@ class AdHocSyncFlowTest {
     @Mock private NotionClient notionClient;
     @Mock private ProjectCatalogService projectCatalogService;
     @Mock private NotionHierarchyService notionHierarchyService;
+    @Mock private AdHocNotionDestinationService adHocDestinationService;
 
     @Test
     void activeTaskUrlWithoutConfig_syncsIntoSharedAdHocDataSource() {
@@ -68,6 +71,9 @@ class AdHocSyncFlowTest {
                 .thenReturn(Optional.of(project));
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
         when(configRepository.findByPlaneProjectRef(projectRef)).thenReturn(Optional.empty());
+        when(adHocDestinationService.getOrCreate()).thenReturn(new AdHocNotionDestinationDocument(
+                AdHocNotionDestinationDocument.SHARED_DESTINATION_ID, "adhoc-page", "adhoc-database",
+                AD_HOC_DATA_SOURCE_ID, Instant.now(), Instant.now()));
         when(mappingRepository.findByTargetDataSourceIdAndSourceId(AD_HOC_DATA_SOURCE_ID, "item-9"))
                 .thenReturn(Optional.empty());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-9\"}"));
@@ -88,7 +94,7 @@ class AdHocSyncFlowTest {
         WorkItemSyncService syncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
         SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository, syncService,
                 projectCatalogService, notionHierarchyService, new ScheduleService(jobRepository),
-                TestData.integrationProperties());
+                adHocDestinationService);
 
         SyncJobDocument manualJob = jobService.enqueueTask(
                 "https://app.plane.so/workspace/browse/DEMO-9", null, false);
@@ -101,6 +107,7 @@ class AdHocSyncFlowTest {
         assertThat(finished.status()).isEqualTo(SyncJobStatus.SUCCESS);
         assertThat(finished.configId()).isNull();
         assertThat(finished.createdCount()).isEqualTo(1);
+        verify(adHocDestinationService).getOrCreate();
         verify(notionClient).ensureWorkItemOptions(AD_HOC_DATA_SOURCE_ID, List.of("Done"), List.of());
         ArgumentCaptor<List<SyncMappingDocument>> mappings = ArgumentCaptor.forClass(List.class);
         verify(mappingRepository).bulkUpsert(mappings.capture());

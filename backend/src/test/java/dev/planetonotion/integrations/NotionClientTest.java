@@ -60,6 +60,34 @@ class NotionClientTest {
     }
 
     @Test
+    void createAdHocDestination_createsSharedPageAndProjectIdentitySchemaUnderParent() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "root-page-id"), builder);
+
+        server.expect(requestTo("https://notion.test/v1/pages"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(containsString("root-page-id")))
+                .andExpect(content().string(containsString("Plane Manual Syncs")))
+                .andRespond(withSuccess("{\"id\":\"ad-hoc-page-id\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://notion.test/v1/databases"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(containsString("workspace_slug")))
+                .andExpect(content().string(containsString("project_identifier")))
+                .andExpect(content().string(containsString("project_name")))
+                .andRespond(withSuccess("""
+                        {"id":"ad-hoc-database-id","data_sources":[{"id":"ad-hoc-data-source-id"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        NotionClient.ProjectDestination destination = client.createAdHocDestination();
+
+        assertThat(destination.pageId()).isEqualTo("ad-hoc-page-id");
+        assertThat(destination.databaseId()).isEqualTo("ad-hoc-database-id");
+        assertThat(destination.dataSourceId()).isEqualTo("ad-hoc-data-source-id");
+    }
+
+    @Test
     void createProjectDestination_archivesPageWhenDatabaseCreationFails() {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
