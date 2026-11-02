@@ -3,6 +3,7 @@ package dev.planetonotion.controllers;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.MongoIdParser;
+import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
@@ -16,6 +17,7 @@ import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
 import dev.planetonotion.models.ApiDtos.ManualProjectSyncRequest;
 import dev.planetonotion.models.ApiDtos.ProjectResponse;
+import dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse;
 import dev.planetonotion.services.ConfigService;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.sync.SyncJobService;
@@ -60,7 +62,8 @@ public class ConfigController {
         Map<ObjectId, PlaneProjectDocument> projectsById = projectCatalogService.findAllById(
                 configs.stream().map(SyncConfigDocument::planeProjectDocumentId).distinct().toList())
                 .stream().collect(Collectors.toMap(PlaneProjectDocument::id, Function.identity()));
-        return configs.stream().map(config -> toResponse(config, projectsById.get(config.planeProjectDocumentId()))).toList();
+        return configs.stream().map(config -> toResponse(config, projectsById.get(config.planeProjectDocumentId())))
+                .toList();
     }
 
     @PostMapping
@@ -111,7 +114,8 @@ public class ConfigController {
     }
 
     private ConfigResponse toResponse(SyncConfigDocument config, PlaneProjectDocument project) {
-        if (project == null) project = projectCatalogService.findById(config.planeProjectDocumentId());
+        if (project == null)
+            project = projectCatalogService.findById(config.planeProjectDocumentId());
         ProjectResponse projectResponse = new ProjectResponse(project.id().toHexString(), project.planeWorkspaceSlug(),
                 project.planeProjectId(), project.planeProjectName(), project.planeProjectIdentifier(),
                 planeService.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
@@ -127,7 +131,7 @@ public class ConfigController {
 
     private JobResponse toJobResponse(SyncJobDocument job) {
         var planeWorkItem = job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null
-                ? new dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse(
+                ? new PlaneWorkItemResponse(
                         manual.planeWorkItem().taskUrl(), manual.planeWorkItem().workItemId())
                 : null;
         var scheduledFor = job instanceof ScheduledSyncJobDocument scheduled ? scheduled.scheduledFor() : null;
@@ -140,7 +144,7 @@ public class ConfigController {
 
     private void validatePageSize(int pageSize) {
         if (pageSize < 1 || pageSize > 100) {
-            throw new dev.planetonotion.common.exceptions.ServiceException(HttpStatus.BAD_REQUEST,
+            throw new ServiceException(HttpStatus.BAD_REQUEST,
                     "INVALID_PAGE_SIZE", "page_size must be between 1 and 100.");
         }
     }

@@ -21,6 +21,7 @@ import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
 import dev.planetonotion.repositories.SyncJobRepository;
@@ -37,10 +38,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SyncJobServiceTest {
 
-    @Mock private SyncJobRepository jobRepository;
-    @Mock private SyncConfigRepository configRepository;
-    @Mock private PlaneProjectRepository projectRepository;
-    @Mock private PlaneService planeService;
+    @Mock
+    private SyncJobRepository jobRepository;
+    @Mock
+    private SyncConfigRepository configRepository;
+    @Mock
+    private PlaneProjectRepository projectRepository;
+    @Mock
+    private PlaneService planeService;
 
     private final ObjectId projectRef = new ObjectId();
     private final ObjectId configId = new ObjectId();
@@ -62,7 +67,7 @@ class SyncJobServiceTest {
         ObjectId otherConfigId = new ObjectId();
         Instant later = Instant.parse("2026-11-02T12:00:00Z");
         Instant earlier = Instant.parse("2026-11-02T11:00:00Z");
-        when(jobRepository.findPendingScheduledJobs()).thenReturn(List.of(
+        when(jobRepository.findAllPendingScheduledJobs()).thenReturn(List.of(
                 pendingScheduled(configId, later),
                 pendingScheduled(otherConfigId, earlier),
                 pendingScheduled(configId, earlier)));
@@ -103,7 +108,8 @@ class SyncJobServiceTest {
 
         assertThatThrownBy(() -> service.enqueueTask("https://app.plane.so/demo-workspace/browse/DEMO-7", null, false))
                 .isInstanceOf(ServiceException.class)
-                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode()).isEqualTo("CONFIG_ARCHIVED"));
+                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode())
+                        .isEqualTo("CONFIG_ARCHIVED"));
         verify(jobRepository, never()).save(any());
     }
 
@@ -145,24 +151,28 @@ class SyncJobServiceTest {
 
         assertThatThrownBy(() -> service.enqueueTask("https://app.plane.so/demo-workspace/browse/DEMO-7", null, false))
                 .isInstanceOf(ServiceException.class)
-                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode()).isEqualTo("DRAFT_WORK_ITEM"));
+                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode())
+                        .isEqualTo("DRAFT_WORK_ITEM"));
         verify(jobRepository, never()).save(any());
     }
 
     @Test
     void enqueueTask_rejectsArchivedWorkItem() {
         when(planeService.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
-                .thenReturn(TestData.json("{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":\"2026-10-31T10:00:00Z\"}"));
+                .thenReturn(TestData.json(
+                        "{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":\"2026-10-31T10:00:00Z\"}"));
 
         assertThatThrownBy(() -> service.enqueueTask("https://app.plane.so/demo-workspace/browse/DEMO-7", null, false))
                 .isInstanceOf(ServiceException.class)
-                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode()).isEqualTo("ARCHIVED_WORK_ITEM"));
+                .satisfies(exception -> assertThat(((ServiceException) exception).errorCode())
+                        .isEqualTo("ARCHIVED_WORK_ITEM"));
         verify(jobRepository, never()).save(any());
     }
 
     private void stubActiveTask() {
         when(planeService.getWorkItemByIdentifier("demo-workspace", "DEMO-7"))
-                .thenReturn(TestData.json("{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":null}"));
+                .thenReturn(TestData.json(
+                        "{\"id\":\"item-7\",\"project_id\":\"plane-project\",\"is_draft\":false,\"archived_at\":null}"));
     }
 
     private void stubProject() {
@@ -172,8 +182,9 @@ class SyncJobServiceTest {
 
     private SyncJobDocument pendingScheduled(ObjectId forConfig, Instant scheduledFor) {
         Instant now = Instant.now();
-        return new ScheduledSyncJobDocument(new ObjectId(), SyncJobType.SCHEDULED, SyncScope.PROJECT, SyncJobStatus.PENDING,
+        return new ScheduledSyncJobDocument(new ObjectId(), SyncJobType.SCHEDULED, SyncScope.PROJECT,
+                SyncJobStatus.PENDING,
                 forConfig, projectRef, scheduledFor, null, null, 0,
-                dev.planetonotion.models.documents.jobs.SyncJobResult.empty(), null, null, now, now);
+                SyncJobResult.empty(), null, null, now, now);
     }
 }

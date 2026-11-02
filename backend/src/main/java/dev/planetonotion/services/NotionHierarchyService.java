@@ -8,6 +8,7 @@ import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.SyncMappingRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
 import dev.planetonotion.repositories.PlaneWorkspaceRepository;
@@ -37,7 +38,8 @@ public class NotionHierarchyService {
     private final NotionClient notionClient;
     private final IntegrationProperties integrationProperties;
 
-    public NotionHierarchyService(PlaneWorkspaceRepository workspaceRepository, PlaneProjectRepository projectRepository,
+    public NotionHierarchyService(PlaneWorkspaceRepository workspaceRepository,
+            PlaneProjectRepository projectRepository,
             SyncConfigRepository configRepository, SyncMappingRepository mappingRepository, NotionClient notionClient,
             IntegrationProperties integrationProperties) {
         this.workspaceRepository = workspaceRepository;
@@ -50,7 +52,8 @@ public class NotionHierarchyService {
 
     public synchronized PlaneWorkspaceDocument ensureWorkspacePage(String workspaceSlug) {
         PlaneWorkspaceDocument existing = workspaceRepository.findByPlaneWorkspaceSlug(workspaceSlug).orElse(null);
-        if (existing != null) return existing;
+        if (existing != null)
+            return existing;
 
         String pageId = notionClient.createWorkspacePage(workspaceSlug);
         Instant now = Instant.now();
@@ -67,7 +70,8 @@ public class NotionHierarchyService {
 
     public void synchronizeProjectPage(PlaneProjectDocument project) {
         PlaneWorkspaceDocument workspace = ensureWorkspacePage(project.planeWorkspaceSlug());
-        notionClient.synchronizeProjectPage(project.notionProjectPageId(), project.planeProjectName(), workspace.notionPageId());
+        notionClient.synchronizeProjectPage(project.notionProjectPageId(), project.planeProjectName(),
+                workspace.notionPageId());
     }
 
     public void refreshSummaries() {
@@ -82,10 +86,12 @@ public class NotionHierarchyService {
     }
 
     private void writeSummaries() {
-        List<SyncConfigDocument> configs = configRepository.findAll();
-        if (configs.isEmpty()) return;
+        List<SyncConfigDocument> configs = configRepository.findAll(MongoQueryOptions.empty());
+        if (configs.isEmpty())
+            return;
 
-        List<ObjectId> projectRefs = configs.stream().map(SyncConfigDocument::planeProjectDocumentId).distinct().toList();
+        List<ObjectId> projectRefs = configs.stream().map(SyncConfigDocument::planeProjectDocumentId).distinct()
+                .toList();
         Map<ObjectId, PlaneProjectDocument> projectsById = projectRepository.findAllById(projectRefs).stream()
                 .collect(Collectors.toMap(PlaneProjectDocument::id, Function.identity()));
         List<String> dataSourceIds = projectsById.values().stream().map(PlaneProjectDocument::notionDataSourceId)
@@ -94,22 +100,27 @@ public class NotionHierarchyService {
         Map<String, List<ProjectSummary>> projectsByWorkspace = new LinkedHashMap<>();
         for (SyncConfigDocument config : configs) {
             PlaneProjectDocument project = projectsById.get(config.planeProjectDocumentId());
-            if (project == null || project.notionDataSourceId() == null || project.notionDataSourceId().isBlank()) continue;
+            if (project == null || project.notionDataSourceId() == null || project.notionDataSourceId().isBlank())
+                continue;
             projectsByWorkspace.computeIfAbsent(project.planeWorkspaceSlug(), ignored -> new ArrayList<>())
-                    .add(new ProjectSummary(project, config, mappingCounts.getOrDefault(project.notionDataSourceId(), 0L)));
+                    .add(new ProjectSummary(project, config,
+                            mappingCounts.getOrDefault(project.notionDataSourceId(), 0L)));
         }
 
         List<WorkspaceSummary> workspaceSummaries = new ArrayList<>();
         for (Map.Entry<String, List<ProjectSummary>> entry : projectsByWorkspace.entrySet()) {
             List<ProjectSummary> projects = entry.getValue().stream()
-                    .sorted(Comparator.comparing(summary -> summary.project().planeProjectName(), String.CASE_INSENSITIVE_ORDER)).toList();
+                    .sorted(Comparator.comparing(summary -> summary.project().planeProjectName(),
+                            String.CASE_INSENSITIVE_ORDER))
+                    .toList();
             Counts counts = counts(projects);
             long workItemCount = projects.stream().mapToLong(ProjectSummary::workItemCount).sum();
             PlaneWorkspaceDocument workspace = ensureWorkspacePage(entry.getKey());
             String summary = projects.size() + " configured " + plural(projects.size(), "project")
                     + "  ·  " + workItemCount + " synced " + plural(workItemCount, "work item");
             List<List<String>> projectRows = projects.stream().map(project -> List.of(
-                    project.project().planeProjectName(), project.project().planeProjectIdentifier(), project.config().status().name(),
+                    project.project().planeProjectName(), project.project().planeProjectIdentifier(),
+                    project.config().status().name(),
                     Long.toString(project.workItemCount()))).toList();
             notionClient.upsertPageTableSummary(workspace.notionPageId(), "Project overview",
                     List.of("Projects synced from Plane"), "Workspace sync summary:", summary,

@@ -10,6 +10,7 @@ import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
 import dev.planetonotion.repositories.SyncJobRepository;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,14 +33,16 @@ public class ScheduleService {
 
     public void reset(SyncConfigDocument config) {
         cancelPending(config.id());
-        if (config.status() != ConfigStatus.ACTIVE) return;
+        if (config.status() != ConfigStatus.ACTIVE)
+            return;
         SyncSchedule schedule = config.schedule();
         Instant anchor = schedule.startAt() == null ? config.createdAt() : schedule.startAt();
         Instant now = Instant.now();
         Instant first = schedule.type() == ScheduleType.INTERVAL
                 ? intervalOccurrenceAtOrAfter(schedule, anchor, now)
                 : calendarOccurrence(config, now.minusNanos(1));
-        if (insideWindow(schedule, first)) jobRepository.save(newScheduledJob(config, first, SyncJobStatus.PENDING));
+        if (insideWindow(schedule, first))
+            jobRepository.save(newScheduledJob(config, first, SyncJobStatus.PENDING));
     }
 
     public void cancelPending(ObjectId configId) {
@@ -48,31 +51,36 @@ public class ScheduleService {
 
     private Instant intervalOccurrenceAtOrAfter(SyncSchedule schedule, Instant anchor, Instant now) {
         long period = intervalPeriod(schedule.interval()).getSeconds();
-        if (!anchor.isBefore(now)) return anchor;
+        if (!anchor.isBefore(now))
+            return anchor;
         long elapsed = Duration.between(anchor, now).getSeconds();
         long intervals = elapsed / period + 1;
         return anchor.plusSeconds(intervals * period);
     }
 
     public void afterRun(SyncJobDocument finishedJob, SyncConfigDocument config) {
-        if (config.status() != ConfigStatus.ACTIVE) return;
+        if (config.status() != ConfigStatus.ACTIVE)
+            return;
         Instant now = Instant.now();
-        var pending = jobRepository.findPendingScheduledJobs(config.id());
+        var pending = jobRepository.findPendingScheduledJobsByConfigId(config.id());
         Instant base;
         boolean pendingInFuture = false;
         if (!pending.isEmpty()) {
             base = null;
             for (SyncJobDocument candidate : pending) {
-                if (!(candidate instanceof ScheduledSyncJobDocument job)) continue;
+                if (!(candidate instanceof ScheduledSyncJobDocument job))
+                    continue;
                 if (job.scheduledFor() != null && job.scheduledFor().isAfter(now)) {
                     pendingInFuture = true;
                     continue;
                 }
                 Instant finishedAt = now;
                 jobRepository.save(copyAsSkipped(job, finishedAt));
-                if (base == null || job.scheduledFor().isAfter(base)) base = job.scheduledFor();
+                if (base == null || job.scheduledFor().isAfter(base))
+                    base = job.scheduledFor();
             }
-            if (pendingInFuture || base == null) return;
+            if (pendingInFuture || base == null)
+                return;
         } else if (finishedJob instanceof ScheduledSyncJobDocument scheduled) {
             base = scheduled.scheduledFor();
         } else {
@@ -81,10 +89,12 @@ public class ScheduleService {
 
         Instant next = nextOccurrence(config, base);
         while (next != null && !next.isAfter(now)) {
-            if (insideWindow(config.schedule(), next)) jobRepository.save(newScheduledJob(config, next, SyncJobStatus.SKIPPED_OVERLAP));
+            if (insideWindow(config.schedule(), next))
+                jobRepository.save(newScheduledJob(config, next, SyncJobStatus.SKIPPED_OVERLAP));
             next = nextOccurrence(config, next);
         }
-        if (insideWindow(config.schedule(), next)) jobRepository.save(newScheduledJob(config, next, SyncJobStatus.PENDING));
+        if (insideWindow(config.schedule(), next))
+            jobRepository.save(newScheduledJob(config, next, SyncJobStatus.PENDING));
     }
 
     private ScheduledSyncJobDocument copyAsSkipped(ScheduledSyncJobDocument job, Instant now) {
@@ -95,7 +105,8 @@ public class ScheduleService {
     }
 
     private Instant nextOccurrence(SyncConfigDocument config, Instant previous) {
-        if (previous == null) return null;
+        if (previous == null)
+            return null;
         SyncSchedule schedule = config.schedule();
         if (schedule.type() == ScheduleType.INTERVAL) {
             return previous.plus(intervalPeriod(schedule.interval()));
@@ -122,15 +133,18 @@ public class ScheduleService {
         for (int dayOffset = 0; dayOffset <= 3660; dayOffset++) {
             LocalDate day = startDay.plusDays(dayOffset);
             Instant candidate = day.atTime(runAt).toInstant(ZoneOffset.UTC);
-            if (!candidate.isAfter(after) || candidate.isBefore(anchorInstant)) continue;
+            if (!candidate.isAfter(after) || candidate.isBefore(anchorInstant))
+                continue;
             long elapsedDays = ChronoUnit.DAYS.between(anchor.toLocalDate(), day);
             if (schedule.calendar().frequency() == CalendarFrequency.DAILY) {
-                if (elapsedDays % schedule.calendar().interval() == 0) return candidate;
+                if (elapsedDays % schedule.calendar().interval() == 0)
+                    return candidate;
                 continue;
             }
             long elapsedWeeks = Math.floorDiv(elapsedDays, 7);
             boolean configuredDay = schedule.calendar().daysOfWeek().contains(day.getDayOfWeek());
-            if (elapsedWeeks % schedule.calendar().interval() == 0 && configuredDay) return candidate;
+            if (elapsedWeeks % schedule.calendar().interval() == 0 && configuredDay)
+                return candidate;
         }
         return null;
     }
@@ -141,12 +155,13 @@ public class ScheduleService {
                 && (schedule.endAt() == null || occurrence.isBefore(schedule.endAt()));
     }
 
-    private ScheduledSyncJobDocument newScheduledJob(SyncConfigDocument config, Instant scheduledFor, SyncJobStatus status) {
+    private ScheduledSyncJobDocument newScheduledJob(SyncConfigDocument config, Instant scheduledFor,
+            SyncJobStatus status) {
         Instant now = Instant.now();
         boolean skipped = status == SyncJobStatus.SKIPPED_OVERLAP;
         return new ScheduledSyncJobDocument(null, SyncJobType.SCHEDULED, SyncScope.PROJECT, status,
                 config.id(), config.planeProjectDocumentId(), scheduledFor, null, skipped ? now : null, 0,
-                dev.planetonotion.models.documents.jobs.SyncJobResult.empty(),
+                SyncJobResult.empty(),
                 skipped ? "SKIPPED_OVERLAP" : null,
                 skipped ? "The scheduled occurrence elapsed while this config was busy." : null,
                 now, now);

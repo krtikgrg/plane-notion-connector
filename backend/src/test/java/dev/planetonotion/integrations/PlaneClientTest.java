@@ -6,6 +6,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import dev.planetonotion.TestData;
+import dev.planetonotion.common.exceptions.IntegrationException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,8 @@ class PlaneClientTest {
 
     @AfterEach
     void verifyRequests() {
-        if (server != null) server.verify();
+        if (server != null)
+            server.verify();
     }
 
     @Test
@@ -38,7 +40,7 @@ class PlaneClientTest {
             assertThat(request.getURI().getPath()).isEqualTo("/api/v2/workspaces/workspace/work-items/DEMO-7/");
         }).andRespond(withStatus(HttpStatus.NOT_FOUND));
         assertThatThrownBy(() -> client.getWorkItemByIdentifier("workspace", "DEMO-7"))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class);
+                .isInstanceOf(IntegrationException.class);
     }
 
     @Test
@@ -52,7 +54,7 @@ class PlaneClientTest {
                 .isEqualTo("/api/v2/workspaces/workspace/projects/project-id/work-items/item-id/"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
         assertThatThrownBy(() -> client.getWorkItem("workspace", "project-id", "item-id"))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class);
+                .isInstanceOf(IntegrationException.class);
     }
 
     @Test

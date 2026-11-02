@@ -110,6 +110,33 @@ public abstract class SyncJobDocument {
     @Field("updated_at")
     private final Instant updatedAt;
 
+    /** Java property name for the MongoDB identifier. */
+    public static final String FIELD_ID = "id";
+
+    /** Java property name for the configuration document ID. */
+    public static final String FIELD_CONFIG_ID = "configId";
+
+    /** Java property name for the job type. */
+    public static final String FIELD_JOB_TYPE = "jobType";
+
+    /** Java property name for the sync scope. */
+    public static final String FIELD_SCOPE = "scope";
+
+    /** Java property name for the job status. */
+    public static final String FIELD_JOB_STATUS = "jobStatus";
+
+    /** Java property name for the worker start timestamp. */
+    public static final String FIELD_STARTED_AT = "startedAt";
+
+    /** Java property name for the attempt count. */
+    public static final String FIELD_ATTEMPT_COUNT = "attemptCount";
+
+    /** Java property name for the creation timestamp. */
+    public static final String FIELD_CREATED_AT = "createdAt";
+
+    /** Java property name for the last update timestamp. */
+    public static final String FIELD_UPDATED_AT = "updatedAt";
+
     /** Initializes fields shared by manual and scheduled job subtypes. */
     protected SyncJobDocument(ObjectId id, SyncJobType jobType, SyncScope scope, SyncJobStatus jobStatus,
             ObjectId configId, ObjectId planeProjectDocumentId, Instant startedAt, Instant finishedAt,

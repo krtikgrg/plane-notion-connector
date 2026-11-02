@@ -43,4 +43,13 @@ public record SyncConfigDocument(
 
         /** When this configuration was last updated. */
         @Field("updated_at") Instant updatedAt) {
+
+    /** Java property name for this document's MongoDB identifier. */
+    public static final String FIELD_ID = "id";
+
+    /** Java property name for the linked Plane project document ID. */
+    public static final String FIELD_PLANE_PROJECT_DOCUMENT_ID = "planeProjectDocumentId";
+
+    /** Java property name used to sort configurations by creation time. */
+    public static final String FIELD_CREATED_AT = "createdAt";
 }

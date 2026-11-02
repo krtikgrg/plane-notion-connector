@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import dev.planetonotion.TestData;
@@ -41,15 +42,24 @@ class AdHocSyncFlowTest {
 
     private static final String AD_HOC_DATA_SOURCE_ID = "adhoc-data-source";
 
-    @Mock private SyncJobRepository jobRepository;
-    @Mock private SyncConfigRepository configRepository;
-    @Mock private PlaneProjectRepository projectRepository;
-    @Mock private SyncMappingRepository mappingRepository;
-    @Mock private PlaneService planeService;
-    @Mock private NotionClient notionClient;
-    @Mock private ProjectCatalogService projectCatalogService;
-    @Mock private NotionHierarchyService notionHierarchyService;
-    @Mock private AdHocNotionDestinationService adHocDestinationService;
+    @Mock
+    private SyncJobRepository jobRepository;
+    @Mock
+    private SyncConfigRepository configRepository;
+    @Mock
+    private PlaneProjectRepository projectRepository;
+    @Mock
+    private SyncMappingRepository mappingRepository;
+    @Mock
+    private PlaneService planeService;
+    @Mock
+    private NotionClient notionClient;
+    @Mock
+    private ProjectCatalogService projectCatalogService;
+    @Mock
+    private NotionHierarchyService notionHierarchyService;
+    @Mock
+    private AdHocNotionDestinationService adHocDestinationService;
 
     @Test
     void activeTaskUrlWithoutConfig_syncsIntoSharedAdHocDataSource() {
@@ -101,7 +111,7 @@ class AdHocSyncFlowTest {
         worker.claimAndRunOne();
 
         ArgumentCaptor<SyncJobDocument> saved = ArgumentCaptor.forClass(SyncJobDocument.class);
-        org.mockito.Mockito.verify(jobRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+        verify(jobRepository, times(2)).save(saved.capture());
         SyncJobDocument finished = saved.getAllValues().get(1);
         assertThat(finished.jobStatus()).isEqualTo(SyncJobStatus.SUCCESS);
         assertThat(finished.configId()).isNull();
@@ -109,7 +119,7 @@ class AdHocSyncFlowTest {
         verify(adHocDestinationService).getOrCreate();
         verify(notionClient).ensureWorkItemOptions(AD_HOC_DATA_SOURCE_ID, List.of("Done"), List.of());
         ArgumentCaptor<List<SyncMappingDocument>> mappings = ArgumentCaptor.forClass(List.class);
-        verify(mappingRepository, org.mockito.Mockito.times(2)).bulkUpsert(mappings.capture());
+        verify(mappingRepository, times(2)).bulkUpsert(mappings.capture());
         List<SyncMappingDocument> completedMappings = mappings.getAllValues().getLast();
         assertThat(completedMappings.getFirst().notionDataSourceId()).isEqualTo(AD_HOC_DATA_SOURCE_ID);
         assertThat(completedMappings.getFirst().planeSourceHash()).isNotBlank();

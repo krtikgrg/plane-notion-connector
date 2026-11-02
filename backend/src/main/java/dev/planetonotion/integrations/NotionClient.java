@@ -3,11 +3,12 @@ package dev.planetonotion.integrations;
 import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.IntegrationException;
-import dev.planetonotion.integrations.HttpService;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -42,7 +43,8 @@ public class NotionClient {
 
     public String createWorkspacePage(String workspaceSlug) {
         if (properties.notionParentPageId() == null || properties.notionParentPageId().isBlank()) {
-            throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0, "NOTION_PARENT_PAGE_ID is required to create workspace pages.");
+            throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0,
+                    "NOTION_PARENT_PAGE_ID is required to create workspace pages.");
         }
         JsonNode page = post("/v1/pages", Map.of(
                 "parent", Map.of("type", "page_id", "page_id", properties.notionParentPageId()),
@@ -69,7 +71,8 @@ public class NotionClient {
         JsonNode page = get("/v1/pages/" + segment(pageId));
         JsonNode title = page.path("properties").path("title").path("title");
         String currentTitle = title.isArray() && !title.isEmpty()
-                ? title.get(0).path("plain_text").asString("") : "";
+                ? title.get(0).path("plain_text").asString("")
+                : "";
         if (!projectName.equals(currentTitle)) {
             patch("/v1/pages/" + segment(pageId), Map.of("properties",
                     Map.of("title", Map.of("title", richText(projectName)))));
@@ -104,7 +107,7 @@ public class NotionClient {
                 .findFirst().orElse(null);
 
         for (JsonNode block : section) {
-            if ("paragraph".equals(block.path("type").asString("") )
+            if ("paragraph".equals(block.path("type").asString(""))
                     && blockText(block).startsWith(summaryPrefix)) {
                 trashBlock(block);
             }
@@ -119,7 +122,8 @@ public class NotionClient {
 
         boolean tableWidthChanged = table != null
                 && table.path("table").path("table_width").asInt(-1) != columns.size();
-        if (tableWidthChanged) trashBlock(table);
+        if (tableWidthChanged)
+            trashBlock(table);
         if (table == null || tableWidthChanged) {
             JsonNode response = appendBlocks(pageId, List.of(tableBlock(columns)), callout.path("id").asString(""));
             JsonNode createdTable = response.path("results").get(0);
@@ -134,11 +138,13 @@ public class NotionClient {
         String cursor = null;
         do {
             String path = "/v1/blocks/" + segment(blockId) + "/children?page_size=100";
-            if (cursor != null) path += "&start_cursor=" + segment(cursor);
+            if (cursor != null)
+                path += "&start_cursor=" + segment(cursor);
             JsonNode response = get(path);
             response.path("results").forEach(blocks::add);
             cursor = response.path("next_cursor").asString("");
-            if (cursor.isBlank() || !response.path("has_more").asBoolean(false)) cursor = null;
+            if (cursor.isBlank() || !response.path("has_more").asBoolean(false))
+                cursor = null;
         } while (cursor != null);
         return blocks;
     }
@@ -146,13 +152,18 @@ public class NotionClient {
     private List<JsonNode> sectionBlocks(List<JsonNode> blocks, String headingId) {
         int start = -1;
         for (int i = 0; i < blocks.size(); i++) {
-            if (headingId.equals(blocks.get(i).path("id").asString(""))) { start = i; break; }
+            if (headingId.equals(blocks.get(i).path("id").asString(""))) {
+                start = i;
+                break;
+            }
         }
-        if (start < 0) return List.of();
+        if (start < 0)
+            return List.of();
         List<JsonNode> result = new ArrayList<>();
         for (int i = start + 1; i < blocks.size(); i++) {
             JsonNode block = blocks.get(i);
-            if (isHeading(block)) break;
+            if (isHeading(block))
+                break;
             result.add(block);
         }
         return result;
@@ -166,7 +177,8 @@ public class NotionClient {
         String type = block.path("type").asString("");
         JsonNode text = block.path(type).path("rich_text");
         StringBuilder result = new StringBuilder();
-        if (text.isArray()) text.forEach(part -> result.append(part.path("plain_text").asString("")));
+        if (text.isArray())
+            text.forEach(part -> result.append(part.path("plain_text").asString("")));
         return result.toString();
     }
 
@@ -219,10 +231,12 @@ public class NotionClient {
         }
         if (rows.size() > available) {
             List<Map<String, Object>> additions = new ArrayList<>();
-            for (int i = available; i < rows.size(); i++) additions.add(tableRow(rows.get(i), false));
+            for (int i = available; i < rows.size(); i++)
+                additions.add(tableRow(rows.get(i), false));
             appendBlocks(tableId, additions);
         }
-        for (int i = rows.size(); i < existing.size(); i++) trashBlock(existing.get(i));
+        for (int i = rows.size(); i < existing.size(); i++)
+            trashBlock(existing.get(i));
     }
 
     private void trashBlock(JsonNode block) {
@@ -236,7 +250,8 @@ public class NotionClient {
     private JsonNode appendBlocks(String parentId, List<Map<String, Object>> blocks, String afterBlockId) {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("children", blocks);
-        if (afterBlockId != null) body.put("position", Map.of("type", "after_block", "after_block", Map.of("id", afterBlockId)));
+        if (afterBlockId != null)
+            body.put("position", Map.of("type", "after_block", "after_block", Map.of("id", afterBlockId)));
         return patchForResponse("/v1/blocks/" + segment(parentId) + "/children", body);
     }
 
@@ -255,7 +270,8 @@ public class NotionClient {
             String databaseId = requiredId(database, "Notion did not return the database ID.");
             JsonNode sources = database.path("data_sources");
             if (!sources.isArray() || sources.isEmpty()) {
-                throw new IntegrationException("NOTION_DATA_SOURCE_MISSING", 502, "Notion created the database without returning a data source.");
+                throw new IntegrationException("NOTION_DATA_SOURCE_MISSING", 502,
+                        "Notion created the database without returning a data source.");
             }
             String dataSourceId = requiredId(sources.get(0), "Notion did not return a data source ID.");
             return new ProjectDestination(pageId, databaseId, dataSourceId);
@@ -288,11 +304,14 @@ public class NotionClient {
         List<String> labelOptions = mergedOptions(schema.path("labels").path("multi_select").path("options"), labels);
         boolean stateChanged = !sameOptions(schema.path("state").path("select").path("options"), stateOptions);
         boolean labelsChanged = !sameOptions(schema.path("labels").path("multi_select").path("options"), labelOptions);
-        if (!stateChanged && !labelsChanged) return;
+        if (!stateChanged && !labelsChanged)
+            return;
 
         Map<String, Object> updates = new java.util.LinkedHashMap<>();
-        if (stateChanged) updates.put("state", Map.of("select", Map.of("options", optionObjects(stateOptions))));
-        if (labelsChanged) updates.put("labels", Map.of("multi_select", Map.of("options", optionObjects(labelOptions))));
+        if (stateChanged)
+            updates.put("state", Map.of("select", Map.of("options", optionObjects(stateOptions))));
+        if (labelsChanged)
+            updates.put("labels", Map.of("multi_select", Map.of("options", optionObjects(labelOptions))));
         patch("/v1/data_sources/" + segment(dataSourceId), Map.of("properties", updates));
     }
 
@@ -314,7 +333,8 @@ public class NotionClient {
         }
     }
 
-    private Map<String, Object> taskProperties(List<String> states, List<String> labels, boolean includeProjectIdentity) {
+    private Map<String, Object> taskProperties(List<String> states, List<String> labels,
+            boolean includeProjectIdentity) {
         Map<String, Object> lifecycle = Map.of("select", Map.of("options", optionObjects(List.of(
                 "ACTIVE", "ARCHIVED_IN_PLANE", "MISSING_FROM_PROJECT"))));
         Map<String, Object> properties = new java.util.LinkedHashMap<>(Map.ofEntries(
@@ -324,7 +344,8 @@ public class NotionClient {
                 Map.entry("work_item_url", Map.of("url", Map.of())),
                 Map.entry("description", Map.of("rich_text", Map.of())),
                 Map.entry("state", Map.of("select", Map.of("options", optionObjects(states)))),
-                Map.entry("priority", Map.of("select", Map.of("options", optionObjects(List.of("urgent", "high", "medium", "low"))))),
+                Map.entry("priority",
+                        Map.of("select", Map.of("options", optionObjects(List.of("urgent", "high", "medium", "low"))))),
                 Map.entry("assignees", Map.of("rich_text", Map.of())),
                 Map.entry("labels", Map.of("multi_select", Map.of("options", optionObjects(labels)))),
                 Map.entry("due_date", Map.of("date", Map.of())),
@@ -349,7 +370,8 @@ public class NotionClient {
         if (current.isArray()) {
             current.forEach(option -> {
                 String name = option.path("name").asString("");
-                if (!name.isBlank()) result.add(name);
+                if (!name.isBlank())
+                    result.add(name);
             });
         }
         incoming.stream().filter(name -> name != null && !name.isBlank()).forEach(result::add);
@@ -358,14 +380,16 @@ public class NotionClient {
 
     private boolean sameOptions(JsonNode existing, List<String> values) {
         List<String> current = new ArrayList<>();
-        if (existing.isArray()) existing.forEach(option -> current.add(option.path("name").asString("")));
+        if (existing.isArray())
+            existing.forEach(option -> current.add(option.path("name").asString("")));
         return current.equals(values);
     }
 
     private List<Map<String, Object>> richText(String value) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (int start = 0; start < value.length(); start += 2000) {
-            result.add(Map.of("type", "text", "text", Map.of("content", value.substring(start, Math.min(value.length(), start + 2000)))));
+            result.add(Map.of("type", "text", "text",
+                    Map.of("content", value.substring(start, Math.min(value.length(), start + 2000)))));
         }
         return result;
     }
@@ -398,12 +422,13 @@ public class NotionClient {
 
     private String requiredId(JsonNode object, String message) {
         String id = object.path("id").asString("");
-        if (id.isBlank()) throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, message);
+        if (id.isBlank())
+            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, message);
         return id;
     }
 
     private String segment(String value) {
-        return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     public record ProjectDestination(String pageId, String databaseId, String dataSourceId) {

@@ -16,17 +16,16 @@ import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.integrations.NotionClient;
-import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.PlaneProjectRepository;
-import dev.planetonotion.services.NotionHierarchyService;
-import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -40,12 +39,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ConfigServiceTest {
 
-    @Mock private SyncConfigRepository configRepository;
-    @Mock private PlaneProjectRepository projectRepository;
-    @Mock private PlaneService planeService;
-    @Mock private NotionClient notionClient;
-    @Mock private NotionHierarchyService notionHierarchyService;
-    @Mock private ScheduleService scheduleService;
+    @Mock
+    private SyncConfigRepository configRepository;
+    @Mock
+    private PlaneProjectRepository projectRepository;
+    @Mock
+    private PlaneService planeService;
+    @Mock
+    private NotionClient notionClient;
+    @Mock
+    private NotionHierarchyService notionHierarchyService;
+    @Mock
+    private ScheduleService scheduleService;
 
     private ConfigService service;
 
@@ -56,15 +61,30 @@ class ConfigServiceTest {
     }
 
     @Test
+    void list_ordersConfigsByMostRecentCreationTime() {
+        when(configRepository.findAll(any())).thenReturn(List.of());
+
+        assertThat(service.list()).isEmpty();
+
+        ArgumentCaptor<MongoQueryOptions> options = ArgumentCaptor.forClass(MongoQueryOptions.class);
+        verify(configRepository).findAll(options.capture());
+        assertThat(options.getValue().filters()).isEmpty();
+        assertThat(options.getValue().sorts()).containsExactly(
+                MongoQueryOptions.Sort.descending(SyncConfigDocument.FIELD_CREATED_AT));
+    }
+
+    @Test
     void create_provisionsDestinationPersistsConfigAndSchedulesIt() {
         ObjectId projectRef = new ObjectId();
         ObjectId configId = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
+                "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
         when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
+                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
+                        Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project"))
                 .thenReturn(List.of(TestData.json("{\"name\":\"Todo\"}")));
         when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
@@ -117,12 +137,14 @@ class ConfigServiceTest {
     @Test
     void create_removesConfigAndDestinationWhenScheduleSeedingFails() {
         ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
+                "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
         when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
+                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
+                        Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
         when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
         when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
@@ -142,12 +164,14 @@ class ConfigServiceTest {
     @Test
     void create_reportsWhenCompensationCannotArchiveNotionDestination() {
         ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
+                "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
         when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
+                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
+                        Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
         when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
         when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
@@ -157,7 +181,7 @@ class ConfigServiceTest {
         doThrow(new IllegalStateException("archive failed")).when(notionClient).archivePage("page-id");
 
         assertThatThrownBy(() -> service.create(intervalInput(projectRef, ConfigStatus.ACTIVE)))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class)
+                .isInstanceOf(IntegrationException.class)
                 .hasFieldOrPropertyWithValue("errorCode", "CONFIG_CREATE_CLEANUP_FAILED");
 
         verify(configRepository).deleteById(any(ObjectId.class));
@@ -191,7 +215,8 @@ class ConfigServiceTest {
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         doAnswer(invocation -> {
             SyncConfigDocument config = invocation.getArgument(0);
-            if (config.status() == ConfigStatus.DISABLED) throw new IllegalStateException("schedule write failed");
+            if (config.status() == ConfigStatus.DISABLED)
+                throw new IllegalStateException("schedule write failed");
             return null;
         }).when(scheduleService).reset(any());
 

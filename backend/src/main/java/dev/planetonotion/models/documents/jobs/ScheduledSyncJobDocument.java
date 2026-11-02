@@ -17,6 +17,9 @@ public final class ScheduledSyncJobDocument extends SyncJobDocument {
     @Field("scheduled_for")
     private final Instant scheduledFor;
 
+    /** Stored MongoDB field name for this subtype-specific scheduled timestamp. */
+    public static final String MONGO_FIELD_SCHEDULED_FOR = "scheduled_for";
+
     /** Creates a scheduled run and validates its job type. */
     @PersistenceCreator
     public ScheduledSyncJobDocument(ObjectId id, SyncJobType jobType, SyncScope scope, SyncJobStatus jobStatus,

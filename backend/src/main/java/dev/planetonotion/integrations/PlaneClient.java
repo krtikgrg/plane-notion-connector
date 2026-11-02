@@ -2,9 +2,9 @@ package dev.planetonotion.integrations;
 
 import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.IntegrationProperties;
-import dev.planetonotion.integrations.HttpService;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -69,11 +69,14 @@ public class PlaneClient {
         query.put("archived", "false");
         query.put("is_draft", "false");
         query.put("expand", "state,assignees,labels");
-        query.put("fields", "id,identifier,project_id,state_id,name,description_html,priority,assignee_ids,label_ids,target_date,archived_at,updated_at,is_draft");
+        query.put("fields",
+                "id,identifier,project_id,state_id,name,description_html,priority,assignee_ids,label_ids,target_date,archived_at,updated_at,is_draft");
         query.put("paginate", "cursor");
         query.put("order_by", "updated_at");
-        if (updatedAtFrom != null) query.put("updated_at__gte", updatedAtFrom.toString());
-        if (updatedAtTo != null) query.put("updated_at__lte", updatedAtTo.toString());
+        if (updatedAtFrom != null)
+            query.put("updated_at__gte", updatedAtFrom.toString());
+        if (updatedAtTo != null)
+            query.put("updated_at__lte", updatedAtTo.toString());
         forEachPage("/api/v2/workspaces/{workspace}/projects/{project}/work-items/", query,
                 page -> {
                     List<JsonNode> items = new ArrayList<>();
@@ -101,11 +104,13 @@ public class PlaneClient {
     }
 
     public List<JsonNode> listWorkItemStates(String workspaceSlug, String projectId) {
-        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/states/", Map.of(), workspaceSlug, projectId);
+        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/states/", Map.of(), workspaceSlug,
+                projectId);
     }
 
     public List<JsonNode> listWorkItemLabels(String workspaceSlug, String projectId) {
-        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/labels/", Map.of(), workspaceSlug, projectId);
+        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/labels/", Map.of(), workspaceSlug,
+                projectId);
     }
 
     private List<JsonNode> getAllPages(String pathTemplate, Map<String, String> filters, Object... pathVariables) {
@@ -123,9 +128,11 @@ public class PlaneClient {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.planeApiBaseUrl())
                     .path(pathTemplate)
                     .queryParam("per_page", PLANE_API_PAGE_SIZE);
-            if (!cursorPagination) builder.queryParam("count", "false");
+            if (!cursorPagination)
+                builder.queryParam("count", "false");
             if (cursorPagination) {
-                if (cursor != null) builder.queryParam("cursor", cursor);
+                if (cursor != null)
+                    builder.queryParam("cursor", cursor);
             } else {
                 builder.queryParam("offset", offset);
             }
@@ -133,16 +140,20 @@ public class PlaneClient {
             JsonNode page = get(builder.buildAndExpand(pathVariables).encode().toUri());
             JsonNode data = page.path("data");
             if (!data.isArray()) {
-                throw new IntegrationException("PLANE_RESPONSE_INVALID", 502, "Plane returned an invalid list response.");
+                throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
+                        "Plane returned an invalid list response.");
             }
             pageConsumer.accept(page);
-            if (data.isEmpty()) break;
+            if (data.isEmpty())
+                break;
 
             if (cursorPagination) {
-                if (!page.path("has_more").asBoolean(false)) break;
+                if (!page.path("has_more").asBoolean(false))
+                    break;
                 String nextCursor = page.path("next_cursor").asString("");
                 if (nextCursor.isBlank() || nextCursor.equals(cursor)) {
-                    throw new IntegrationException("PLANE_RESPONSE_INVALID", 502, "Plane returned invalid pagination data.");
+                    throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
+                            "Plane returned invalid pagination data.");
                 }
                 cursor = nextCursor;
             } else {
@@ -150,7 +161,8 @@ public class PlaneClient {
                 if (next.isNumber()) {
                     int nextOffset = next.asInt();
                     if (nextOffset <= offset) {
-                        throw new IntegrationException("PLANE_RESPONSE_INVALID", 502, "Plane returned invalid pagination data.");
+                        throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
+                                "Plane returned invalid pagination data.");
                     }
                     offset = nextOffset;
                 } else if (data.size() == PLANE_API_PAGE_SIZE) {
@@ -174,7 +186,7 @@ public class PlaneClient {
     }
 
     private String segment(String value) {
-        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private String appBaseUrl() {

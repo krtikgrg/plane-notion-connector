@@ -12,6 +12,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import dev.planetonotion.TestData;
+import dev.planetonotion.common.exceptions.IntegrationException;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,8 @@ class NotionClientTest {
 
     @AfterEach
     void verifyRequests() {
-        if (server != null) server.verify();
+        if (server != null)
+            server.verify();
     }
 
     @Test
@@ -35,7 +37,8 @@ class NotionClientTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
-                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"),
+                builder);
 
         server.expect(requestTo("https://notion.test/v1/pages"))
                 .andExpect(method(HttpMethod.POST))
@@ -92,7 +95,8 @@ class NotionClientTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
-                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"),
+                builder);
 
         server.expect(requestTo("https://notion.test/v1/data_sources/data-source-id/query"))
                 .andExpect(method(HttpMethod.POST))
@@ -109,7 +113,8 @@ class NotionClientTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
-                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"),
+                builder);
 
         server.expect(requestTo("https://notion.test/v1/pages"))
                 .andRespond(withSuccess("{\"id\":\"project-page-id\"}", MediaType.APPLICATION_JSON));
@@ -119,8 +124,9 @@ class NotionClientTest {
                 .andExpect(method(HttpMethod.DELETE))
                 .andRespond(withSuccess());
 
-        assertThatThrownBy(() -> client.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class)
+        assertThatThrownBy(
+                () -> client.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
+                .isInstanceOf(IntegrationException.class)
                 .hasFieldOrPropertyWithValue("errorCode", "NOTION_API_ERROR");
     }
 
@@ -129,14 +135,15 @@ class NotionClientTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
-                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"),
+                builder);
 
         server.expect(requestTo("https://notion.test/v1/blocks/project-page-id"))
                 .andExpect(method(HttpMethod.DELETE))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
         assertThatThrownBy(() -> client.archivePage("project-page-id"))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class)
+                .isInstanceOf(IntegrationException.class)
                 .hasFieldOrPropertyWithValue("errorCode", "NOTION_ARCHIVE_FAILED");
     }
 
@@ -145,7 +152,8 @@ class NotionClientTest {
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();
         NotionClient client = new NotionClient(TestData.integrationProperties("https://plane.test",
-                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"), builder);
+                "https://app.plane.test", "unused", "https://notion.test", "unit-test-token", "parent-page-id"),
+                builder);
 
         server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children?page_size=100"))
                 .andExpect(method(HttpMethod.GET))
@@ -157,9 +165,11 @@ class NotionClientTest {
                         {"results":[{"id":"heading-id","type":"heading_2","heading_2":{"rich_text":[]}}]}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children?page_size=100"))
-                .andRespond(withSuccess("""
-                        {"results":[{"id":"heading-id","type":"heading_2","heading_2":{"rich_text":[{"plain_text":"Workspace overview"}]}}],"has_more":false}
-                        """, MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(
+                        """
+                                {"results":[{"id":"heading-id","type":"heading_2","heading_2":{"rich_text":[{"plain_text":"Workspace overview"}]}}],"has_more":false}
+                                """,
+                        MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://notion.test/v1/blocks/parent-page-id/children"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(content().string(containsString("1 workspace")))

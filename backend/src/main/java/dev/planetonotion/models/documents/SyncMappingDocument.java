@@ -40,4 +40,16 @@ public record SyncMappingDocument(
          * writes.
          */
         @Field("plane_source_hash") String planeSourceHash) {
+
+    /** Java property name for the source Plane work-item ID. */
+    public static final String FIELD_PLANE_WORK_ITEM_ID = "planeWorkItemId";
+
+    /** Java property name for the destination Notion page ID. */
+    public static final String FIELD_NOTION_PAGE_ID = "notionPageId";
+
+    /** Java property name for the destination Notion data-source ID. */
+    public static final String FIELD_NOTION_DATA_SOURCE_ID = "notionDataSourceId";
+
+    /** Java property name for the source properties hash. */
+    public static final String FIELD_PLANE_SOURCE_HASH = "planeSourceHash";
 }

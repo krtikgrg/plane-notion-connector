@@ -8,15 +8,13 @@ import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.integrations.NotionClient.ProjectDestination;
-import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
-import dev.planetonotion.services.NotionHierarchyService;
-import dev.planetonotion.services.ScheduleService;
+import dev.planetonotion.repositories.MongoQueryOptions;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +45,9 @@ public class ConfigService {
     }
 
     public List<SyncConfigDocument> list() {
-        return configRepository.findAllByOrderByCreatedAtDesc();
+        MongoQueryOptions options = new MongoQueryOptions(List.of(),
+                List.of(MongoQueryOptions.Sort.descending(SyncConfigDocument.FIELD_CREATED_AT)));
+        return configRepository.findAll(options);
     }
 
     public SyncConfigDocument get(ObjectId configId) {
@@ -57,21 +57,26 @@ public class ConfigService {
     public SyncConfigDocument create(ConfigInput input) {
         validate(input, true);
         PlaneProjectDocument project = projectRepository.findById(input.planeProjectDocumentId())
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The selected Plane project was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                        "The selected Plane project was not found."));
         if (!project.isAvailable() || project.isArchivedInPlane()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "PROJECT_NOT_SELECTABLE", "Choose an available, non-archived Plane project.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "PROJECT_NOT_SELECTABLE",
+                    "Choose an available, non-archived Plane project.");
         }
         if (configRepository.existsByPlaneProjectDocumentId(project.id())) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS", "This Plane project already has a sync config.");
+            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS",
+                    "This Plane project already has a sync config.");
         }
         if (hasAnyNotionDestination(project)) {
             throw new ServiceException(HttpStatus.CONFLICT, "NOTION_DESTINATION_ALREADY_EXISTS",
                     "This Plane project already has Notion destination details but no sync config. Repair the destination before retrying.");
         }
 
-        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug()).notionPageId();
+        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug())
+                .notionPageId();
         ProjectDestination destination = notionClient.createProjectDestination(workspacePageId,
-                project.planeProjectName(), names(planeService.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())),
+                project.planeProjectName(),
+                names(planeService.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())),
                 names(planeService.listWorkItemLabels(project.planeWorkspaceSlug(), project.planeProjectId())));
         Instant now = Instant.now();
         ConfigStatus status = input.status() == null ? ConfigStatus.ACTIVE : input.status();
@@ -94,7 +99,8 @@ public class ConfigService {
             saved = configRepository.save(draft);
         } catch (DuplicateKeyException exception) {
             compensateCreate(configId, project, destination.pageId(), exception);
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS", "This Plane project already has a sync config.");
+            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS",
+                    "This Plane project already has a sync config.");
         } catch (RuntimeException exception) {
             compensateCreate(configId, project, destination.pageId(), exception);
             throw exception;
@@ -132,7 +138,8 @@ public class ConfigService {
         } catch (RuntimeException exception) {
             cleanupFailures.add(exception);
         }
-        if (cleanupFailures.isEmpty()) return;
+        if (cleanupFailures.isEmpty())
+            return;
 
         IntegrationException cleanupFailure = new IntegrationException("CONFIG_CREATE_CLEANUP_FAILED", 502,
                 "Configuration creation failed, and cleanup was incomplete. Check the config and Notion destination before retrying.");
@@ -145,7 +152,8 @@ public class ConfigService {
         validate(input, false);
         SyncConfigDocument old = findConfig(configId);
         SyncConfigDocument updated = new SyncConfigDocument(
-                old.id(), input.status(), old.planeProjectDocumentId(), input.syncOptions(), normalizeSchedule(input.schedule()),
+                old.id(), input.status(), old.planeProjectDocumentId(), input.syncOptions(),
+                normalizeSchedule(input.schedule()),
                 old.createdAt(), Instant.now());
         SyncConfigDocument saved = configRepository.save(updated);
         try {
@@ -174,20 +182,24 @@ public class ConfigService {
 
     private PlaneProjectDocument withNotionDestination(PlaneProjectDocument project, ProjectDestination destination,
             Instant updatedAt) {
-        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(), project.planeProjectName(),
-                project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(), destination.pageId(),
+        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(),
+                project.planeProjectName(),
+                project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(),
+                destination.pageId(),
                 destination.databaseId(), destination.dataSourceId(), project.createdAt(), updatedAt);
     }
 
     private PlaneProjectDocument withoutNotionDestination(PlaneProjectDocument project, Instant updatedAt) {
-        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(), project.planeProjectName(),
+        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(),
+                project.planeProjectName(),
                 project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(), null, null, null,
                 project.createdAt(), updatedAt);
     }
 
     private SyncConfigDocument findConfig(ObjectId configId) {
         return configRepository.findById(configId)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND", "The sync config was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
+                        "The sync config was not found."));
     }
 
     private void validate(ConfigInput input, boolean creating) {
@@ -211,7 +223,8 @@ public class ConfigService {
             if (calendar == null || calendar.frequency() == null
                     || schedule.interval() != null || calendar.interval() == null || calendar.interval() < 1
                     || calendar.timeOfDay() == null) {
-                throw invalid("Calendar schedules need DAILY or WEEKLY frequency, a positive interval, and a UTC time.");
+                throw invalid(
+                        "Calendar schedules need DAILY or WEEKLY frequency, a positive interval, and a UTC time.");
             }
             if (calendar.frequency() == CalendarFrequency.WEEKLY) {
                 if (calendar.daysOfWeek() == null || calendar.daysOfWeek().isEmpty()
@@ -230,7 +243,8 @@ public class ConfigService {
             throw invalid("Enable work_items for this prototype.");
         }
         if (options.pages()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "FEATURE_NOT_AVAILABLE", "Page sync is not implemented in the first cut.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "FEATURE_NOT_AVAILABLE",
+                    "Page sync is not implemented in the first cut.");
         }
     }
 
@@ -238,7 +252,8 @@ public class ConfigService {
         List<String> names = new ArrayList<>();
         values.forEach(value -> {
             String name = value.path("name").asString("");
-            if (!name.isBlank()) names.add(name);
+            if (!name.isBlank())
+                names.add(name);
         });
         return names;
     }
@@ -248,11 +263,13 @@ public class ConfigService {
     }
 
     private SyncSchedule normalizeSchedule(SyncSchedule schedule) {
-        SyncSchedule.Interval interval = schedule.interval() == null ? null : new SyncSchedule.Interval(
-                schedule.interval().value(), schedule.interval().unit());
-        SyncSchedule.Calendar calendar = schedule.calendar() == null ? null : new SyncSchedule.Calendar(
-                schedule.calendar().frequency(), schedule.calendar().interval(),
-                normalizedDays(schedule.calendar().daysOfWeek()), schedule.calendar().timeOfDay());
+        SyncSchedule.Interval interval = schedule.interval() == null ? null
+                : new SyncSchedule.Interval(
+                        schedule.interval().value(), schedule.interval().unit());
+        SyncSchedule.Calendar calendar = schedule.calendar() == null ? null
+                : new SyncSchedule.Calendar(
+                        schedule.calendar().frequency(), schedule.calendar().interval(),
+                        normalizedDays(schedule.calendar().daysOfWeek()), schedule.calendar().timeOfDay());
         return new SyncSchedule(schedule.type(), schedule.startAt(), schedule.endAt(), interval, calendar);
     }
 

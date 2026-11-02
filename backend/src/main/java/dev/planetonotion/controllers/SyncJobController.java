@@ -11,6 +11,7 @@ import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
 import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
 import dev.planetonotion.models.ApiDtos.ManualTaskSyncRequest;
+import dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -59,7 +60,8 @@ public class SyncJobController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public EnqueuedJobResponse enqueueTask(@Valid @RequestBody ManualTaskSyncRequest request) {
         ObjectId configId = MongoIdParser.optional(request.configId(), "config_id");
-        return toEnqueuedResponse(syncJobService.enqueueTask(request.taskUrl(), configId, request.forceArchivedConfig()));
+        return toEnqueuedResponse(
+                syncJobService.enqueueTask(request.taskUrl(), configId, request.forceArchivedConfig()));
     }
 
     @GetMapping("/{job_id}")
@@ -73,7 +75,7 @@ public class SyncJobController {
 
     private JobResponse toResponse(SyncJobDocument job) {
         var planeWorkItem = job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null
-                ? new dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse(
+                ? new PlaneWorkItemResponse(
                         manual.planeWorkItem().taskUrl(), manual.planeWorkItem().workItemId())
                 : null;
         var scheduledFor = job instanceof ScheduledSyncJobDocument scheduled ? scheduled.scheduledFor() : null;
@@ -86,7 +88,8 @@ public class SyncJobController {
 
     private void validatePageSize(int pageSize) {
         if (pageSize < 1 || pageSize > 100) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PAGE_SIZE", "page_size must be between 1 and 100.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PAGE_SIZE",
+                    "page_size must be between 1 and 100.");
         }
     }
 }

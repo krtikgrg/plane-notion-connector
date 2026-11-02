@@ -1,10 +1,11 @@
 package dev.planetonotion.services;
 
-import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.repositories.MongoQueryOptions;
+import dev.planetonotion.repositories.MongoQueryOptions.Filter;
+import dev.planetonotion.repositories.MongoQueryOptions.Sort;
 import dev.planetonotion.repositories.PlaneProjectRepository;
 import java.net.URI;
 import java.time.Instant;
@@ -17,6 +18,7 @@ import java.util.Set;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
 
 @Service
 public class ProjectCatalogService {
@@ -27,21 +29,27 @@ public class ProjectCatalogService {
     private final PlaneProjectRepository projectRepository;
     private final IntegrationProperties integrationProperties;
 
-    public ProjectCatalogService(PlaneService planeService, PlaneProjectRepository projectRepository, IntegrationProperties integrationProperties) {
+    public ProjectCatalogService(PlaneService planeService,
+            PlaneProjectRepository projectRepository, IntegrationProperties integrationProperties) {
         this.planeService = planeService;
         this.projectRepository = projectRepository;
         this.integrationProperties = integrationProperties;
     }
 
     public List<PlaneProjectDocument> list(String workspaceSlug) {
-        return projectRepository.findByPlaneWorkspaceSlugAndIsAvailableTrueAndIsArchivedInPlaneFalseOrderByPlaneProjectNameAsc(
-                requiredWorkspaceSlug(workspaceSlug));
+        MongoQueryOptions options = new MongoQueryOptions(
+                List.of(
+                        Filter.equalTo(PlaneProjectDocument.FIELD_IS_AVAILABLE, true),
+                        Filter.equalTo(PlaneProjectDocument.FIELD_IS_ARCHIVED_IN_PLANE, false)),
+                List.of(Sort.ascending(PlaneProjectDocument.FIELD_PLANE_PROJECT_NAME)));
+        return projectRepository.findByPlaneWorkspaceSlug(requiredWorkspaceSlug(workspaceSlug), options);
     }
 
     public List<PlaneProjectDocument> refresh(String workspaceSlug) {
         String validatedWorkspaceSlug = requiredWorkspaceSlug(workspaceSlug);
         Instant now = Instant.now();
-        List<PlaneProjectDocument> existing = projectRepository.findByPlaneWorkspaceSlug(validatedWorkspaceSlug);
+        List<PlaneProjectDocument> existing = projectRepository.findByPlaneWorkspaceSlug(validatedWorkspaceSlug,
+                MongoQueryOptions.empty());
         Map<String, PlaneProjectDocument> existingById = new HashMap<>();
         existing.forEach(project -> existingById.put(project.planeProjectId(), project));
 
@@ -50,23 +58,28 @@ public class ProjectCatalogService {
         planeService.forEachProjectPage(validatedWorkspaceSlug, page -> {
             for (JsonNode source : page) {
                 String projectId = source.path("id").asString("");
-                if (projectId.isBlank()) continue;
+                if (projectId.isBlank())
+                    continue;
                 seen.add(projectId);
                 PlaneProjectDocument old = existingById.get(projectId);
                 batch.add(fromPlane(source, validatedWorkspaceSlug, old, now, true, projectId));
-                if (batch.size() == MONGO_WRITE_BATCH_SIZE) flush(batch);
+                if (batch.size() == MONGO_WRITE_BATCH_SIZE)
+                    flush(batch);
             }
         });
         for (PlaneProjectDocument old : existing) {
             if (!seen.contains(old.planeProjectId())) {
-                batch.add(new PlaneProjectDocument(old.id(), old.planeWorkspaceSlug(), old.planeProjectId(), old.planeProjectName(),
-                        old.planeProjectIdentifier(), old.isArchivedInPlane(), false, old.notionProjectPageId(), old.notionDatabaseId(),
+                batch.add(new PlaneProjectDocument(old.id(), old.planeWorkspaceSlug(), old.planeProjectId(),
+                        old.planeProjectName(),
+                        old.planeProjectIdentifier(), old.isArchivedInPlane(), false, old.notionProjectPageId(),
+                        old.notionDatabaseId(),
                         old.notionDataSourceId(), old.createdAt(), now));
-                if (batch.size() == MONGO_WRITE_BATCH_SIZE) flush(batch);
+                if (batch.size() == MONGO_WRITE_BATCH_SIZE)
+                    flush(batch);
             }
         }
         flush(batch);
-        return projectRepository.findByPlaneWorkspaceSlug(validatedWorkspaceSlug);
+        return projectRepository.findByPlaneWorkspaceSlug(validatedWorkspaceSlug, MongoQueryOptions.empty());
     }
 
     public PlaneProjectDocument resolveProjectUrl(String projectUrl) {
@@ -78,7 +91,8 @@ public class ProjectCatalogService {
         }
         if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
                 || !("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme()))) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST", "Enter a project URL from the configured Plane instance.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST",
+                    "Enter a project URL from the configured Plane instance.");
         }
         String[] parts = url.getPath().split("/");
         if (parts.length < 4 || parts[1].isBlank() || !"projects".equals(parts[2]) || parts[3].isBlank()) {
@@ -88,13 +102,15 @@ public class ProjectCatalogService {
         String projectId = parts[3];
         JsonNode source = planeService.getProject(workspaceSlug, projectId);
         PlaneProjectDocument existing = projectRepository
-                .findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, source.path("id").asString(projectId)).orElse(null);
+                .findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, source.path("id").asString(projectId))
+                .orElse(null);
         return projectRepository.save(fromPlane(source, workspaceSlug, existing, Instant.now(), true, projectId));
     }
 
-    public PlaneProjectDocument findById(org.bson.types.ObjectId projectRef) {
+    public PlaneProjectDocument findById(ObjectId projectRef) {
         return projectRepository.findById(projectRef)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The Plane project is not in the catalog."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                        "The Plane project is not in the catalog."));
     }
 
     public PlaneProjectDocument refreshProject(ObjectId projectRef) {
@@ -123,23 +139,27 @@ public class ProjectCatalogService {
 
     private boolean isArchived(JsonNode source, PlaneProjectDocument old) {
         JsonNode archivedAt = source.path("archived_at");
-        if (!archivedAt.isMissingNode()) return !archivedAt.isNull();
+        if (!archivedAt.isMissingNode())
+            return !archivedAt.isNull();
         return source.path("is_archived").asBoolean(old != null && old.isArchivedInPlane());
     }
 
     private void flush(List<PlaneProjectDocument> batch) {
-        if (batch.isEmpty()) return;
+        if (batch.isEmpty())
+            return;
         projectRepository.bulkUpsert(batch);
         batch.clear();
     }
 
     private ServiceException invalidProjectUrl() {
-        return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PROJECT_URL", "Enter a Plane project URL containing its workspace and project.");
+        return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PROJECT_URL",
+                "Enter a Plane project URL containing its workspace and project.");
     }
 
     private String requiredWorkspaceSlug(String workspaceSlug) {
         if (workspaceSlug == null || workspaceSlug.isBlank()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "WORKSPACE_SLUG_REQUIRED", "Enter a Plane workspace slug.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "WORKSPACE_SLUG_REQUIRED",
+                    "Enter a Plane workspace slug.");
         }
         return workspaceSlug.trim();
     }

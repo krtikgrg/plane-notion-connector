@@ -41,4 +41,7 @@ public record PlaneWorkspaceDocument(
          * When this workspace mapping was last updated locally.
          */
         @Field("updated_at") Instant updatedAt) {
+
+    /** Java property name for the workspace slug. */
+    public static final String FIELD_PLANE_WORKSPACE_SLUG = "planeWorkspaceSlug";
 }

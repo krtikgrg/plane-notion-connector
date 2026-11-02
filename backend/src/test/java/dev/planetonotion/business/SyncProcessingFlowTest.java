@@ -8,6 +8,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 
 import dev.planetonotion.TestData;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
@@ -37,26 +38,35 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.JsonNode;
 
 @ExtendWith(MockitoExtension.class)
 class SyncProcessingFlowTest {
 
-    @Mock private SyncJobRepository jobRepository;
-    @Mock private SyncConfigRepository configRepository;
-    @Mock private PlaneProjectRepository projectRepository;
-    @Mock private SyncMappingRepository mappingRepository;
-    @Mock private PlaneService planeService;
-    @Mock private NotionClient notionClient;
-    @Mock private ProjectCatalogService projectCatalogService;
-    @Mock private NotionHierarchyService notionHierarchyService;
-    @Mock private AdHocNotionDestinationService adHocDestinationService;
+    @Mock
+    private SyncJobRepository jobRepository;
+    @Mock
+    private SyncConfigRepository configRepository;
+    @Mock
+    private PlaneProjectRepository projectRepository;
+    @Mock
+    private SyncMappingRepository mappingRepository;
+    @Mock
+    private PlaneService planeService;
+    @Mock
+    private NotionClient notionClient;
+    @Mock
+    private ProjectCatalogService projectCatalogService;
+    @Mock
+    private NotionHierarchyService notionHierarchyService;
+    @Mock
+    private AdHocNotionDestinationService adHocDestinationService;
 
     @Test
     void queuedProjectSync_fetchesPlaneItemsCreatesNotionPageAndMarksRunSuccessful() {
@@ -75,37 +85,39 @@ class SyncProcessingFlowTest {
         when(jobRepository.save(any())).thenAnswer(invocation -> {
             SyncJobDocument job = invocation.getArgument(0);
             SyncJobDocument saved = job.id() == null ? withId(job, jobId) : job;
-            if (saved.jobStatus() == SyncJobStatus.PENDING && saved.jobType() == SyncJobType.MANUAL) queued.set(saved);
+            if (saved.jobStatus() == SyncJobStatus.PENDING && saved.jobType() == SyncJobType.MANUAL)
+                queued.set(saved);
             return saved;
         });
         when(jobRepository.claimNextDueJob(any())).thenAnswer(invocation -> Optional.of(withStatus(
                 queued.get(), SyncJobStatus.RUNNING)));
         when(jobRepository.findLatestSuccessfulProjectSyncStart(configId))
                 .thenReturn(Optional.of(previousProjectRunStart));
-        when(jobRepository.findPendingScheduledJobs(configId)).thenReturn(List.of());
+        when(jobRepository.findPendingScheduledJobsByConfigId(configId)).thenReturn(List.of());
 
         when(planeService.listWorkItemStates("workspace", "plane-project"))
                 .thenReturn(List.of(TestData.json("{\"id\":\"state-1\",\"name\":\"Todo\"}")));
         doAnswer(invocation -> {
-            Consumer<List<tools.jackson.databind.JsonNode>> pageConsumer = invocation.getArgument(4);
+            Consumer<List<JsonNode>> pageConsumer = invocation.getArgument(4);
             pageConsumer.accept(List.of(TestData.json("""
-                {"id":"item-1","project_id":"plane-project","name":"Add dashboard","identifier":"DEMO-1",
-                 "state":{"name":"Todo"},"priority":"high","target_date":"","updated_at":"2026-10-31T10:00:00Z",
-                 "archived_at":null,"description_html":"<p>Useful work</p>","assignees":[],"labels":[]}
-                """)));
+                    {"id":"item-1","project_id":"plane-project","name":"Add dashboard","identifier":"DEMO-1",
+                     "state":{"name":"Todo"},"priority":"high","target_date":"","updated_at":"2026-10-31T10:00:00Z",
+                     "archived_at":null,"description_html":"<p>Useful work</p>","assignees":[],"labels":[]}
+                    """)));
             return null;
-        }).when(planeService).forEachProjectWorkItemPage(org.mockito.ArgumentMatchers.eq("workspace"),
-                org.mockito.ArgumentMatchers.eq("plane-project"), eq(previousProjectRunStart.minusMillis(100)), any(), any());
+        }).when(planeService).forEachProjectWorkItemPage(eq("workspace"),
+                eq("plane-project"), eq(previousProjectRunStart.minusMillis(100)), any(), any());
         when(planeService.listWorkItemLabels("workspace", "plane-project")).thenReturn(List.of());
         when(planeService.workItemUrl("workspace", "plane-project", "item-1"))
                 .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-1");
         when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn("notion-data-source", List.of("item-1")))
                 .thenReturn(List.of());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-1\"}"));
-        org.mockito.Mockito.doNothing().when(notionHierarchyService).synchronizeProjectPage(project);
+        doNothing().when(notionHierarchyService).synchronizeProjectPage(project);
 
         ScheduleService scheduleService = new ScheduleService(jobRepository);
-        WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
+        WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeService, notionClient,
+                mappingRepository);
         SyncJobWorker worker = new SyncJobWorker(jobRepository, configRepository, projectRepository,
                 workItemSyncService, projectCatalogService, notionHierarchyService, scheduleService,
                 adHocDestinationService);
@@ -118,7 +130,7 @@ class SyncProcessingFlowTest {
 
         ArgumentCaptor<List<SyncMappingDocument>> mapping = ArgumentCaptor.forClass(List.class);
         verify(mappingRepository, times(2)).bulkUpsert(mapping.capture());
-        List<dev.planetonotion.models.documents.SyncMappingDocument> completedMappings = mapping.getAllValues().getLast();
+        List<SyncMappingDocument> completedMappings = mapping.getAllValues().getLast();
         assertThat(completedMappings.getFirst().planeWorkItemId()).isEqualTo("item-1");
         assertThat(completedMappings.getFirst().notionPageId()).isEqualTo("notion-page-1");
         ArgumentCaptor<SyncJobDocument> savedJobs = ArgumentCaptor.forClass(SyncJobDocument.class);

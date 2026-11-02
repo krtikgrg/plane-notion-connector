@@ -13,6 +13,7 @@ import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.repositories.AdHocNotionDestinationRepository;
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,8 +28,10 @@ class AdHocNotionDestinationServiceTest {
 
     private static final String DESTINATION_ID = AdHocNotionDestinationDocument.SHARED_DESTINATION_ID;
 
-    @Mock private AdHocNotionDestinationRepository destinationRepository;
-    @Mock private NotionClient notionClient;
+    @Mock
+    private AdHocNotionDestinationRepository destinationRepository;
+    @Mock
+    private NotionClient notionClient;
 
     private AdHocNotionDestinationService service;
 
@@ -62,7 +65,8 @@ class AdHocNotionDestinationServiceTest {
         assertThat(result.notionPageId()).isEqualTo("new-page");
         assertThat(result.notionDatabaseId()).isEqualTo("new-database");
         assertThat(result.notionDataSourceId()).isEqualTo("new-source");
-        ArgumentCaptor<AdHocNotionDestinationDocument> saved = ArgumentCaptor.forClass(AdHocNotionDestinationDocument.class);
+        ArgumentCaptor<AdHocNotionDestinationDocument> saved = ArgumentCaptor
+                .forClass(AdHocNotionDestinationDocument.class);
         verify(destinationRepository).save(saved.capture());
         assertThat(saved.getValue()).isEqualTo(result);
     }
@@ -70,8 +74,8 @@ class AdHocNotionDestinationServiceTest {
     @Test
     void getOrCreate_migratesCompleteLegacyEnvironmentIdsIntoMongo() {
         IntegrationProperties legacyProperties = new IntegrationProperties(
-                java.net.URI.create("https://api.plane.test"), java.net.URI.create("https://app.plane.test"), "unused",
-                java.net.URI.create("https://notion.test"), "unused", "parent-page-id",
+                URI.create("https://api.plane.test"), URI.create("https://app.plane.test"), "unused",
+                URI.create("https://notion.test"), "unused", "parent-page-id",
                 "legacy-page", "legacy-database", "legacy-source");
         service = new AdHocNotionDestinationService(destinationRepository, notionClient, legacyProperties);
         when(destinationRepository.findById(DESTINATION_ID)).thenReturn(Optional.empty());

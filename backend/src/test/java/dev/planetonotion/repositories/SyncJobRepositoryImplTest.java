@@ -23,7 +23,8 @@ import org.springframework.data.mongodb.core.query.Query;
 @ExtendWith(MockitoExtension.class)
 class SyncJobRepositoryImplTest {
 
-    @Mock private MongoTemplate mongoTemplate;
+    @Mock
+    private MongoTemplate mongoTemplate;
 
     @Test
     void findJobs_appliesFiltersAndUsesMongoIdKeysetPagination() {
@@ -38,8 +39,9 @@ class SyncJobRepositoryImplTest {
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         verify(mongoTemplate).find(query.capture(), eq(SyncJobDocument.class));
         String filter = query.getValue().getQueryObject().toString();
-        assertThat(filter).contains("config_id", "job_status", "SUCCESS", "job_type", "MANUAL", "created_at", "$gte", "$lt");
-        assertThat(query.getValue().getSortObject().get("_id")).isEqualTo(-1);
+        assertThat(filter).contains(SyncJobDocument.FIELD_CONFIG_ID, SyncJobDocument.FIELD_JOB_STATUS, "SUCCESS",
+                SyncJobDocument.FIELD_JOB_TYPE, "MANUAL", SyncJobDocument.FIELD_CREATED_AT, "$gte", "$lt");
+        assertThat(query.getValue().getSortObject().get(SyncJobDocument.FIELD_ID)).isEqualTo(-1);
         assertThat(query.getValue().getLimit()).isEqualTo(21);
     }
 }

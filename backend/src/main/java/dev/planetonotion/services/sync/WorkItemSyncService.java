@@ -2,6 +2,7 @@ package dev.planetonotion.services.sync;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -14,6 +15,7 @@ import java.util.function.Consumer;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.bson.types.ObjectId;
 
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
@@ -212,7 +214,7 @@ public class WorkItemSyncService {
     }
 
     private UpsertResult createWithMapping(String notionDataSourceId, String planeWorkItemId, String planeSourceHash,
-            Map<String, Object> properties, org.bson.types.ObjectId mappingId) {
+            Map<String, Object> properties, ObjectId mappingId) {
         JsonNode page = notionClient.createWorkItem(notionDataSourceId, properties);
         String targetId = page.path("id").asString("");
         if (targetId.isBlank()) {
@@ -228,7 +230,7 @@ public class WorkItemSyncService {
     }
 
     private SyncMappingDocument pendingMapping(String planeWorkItemId, String notionDataSourceId,
-            org.bson.types.ObjectId id) {
+            ObjectId id) {
         return new SyncMappingDocument(id, planeWorkItemId, null, notionDataSourceId, "");
     }
 
@@ -236,7 +238,7 @@ public class WorkItemSyncService {
         try {
             byte[] payload = HASH_MAPPER.writeValueAsBytes(sorted(properties));
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(payload);
-            return java.util.HexFormat.of().formatHex(digest);
+            return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);
         }

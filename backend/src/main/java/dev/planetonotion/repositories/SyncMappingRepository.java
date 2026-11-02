@@ -9,7 +9,7 @@ import java.util.Map;
 public interface SyncMappingRepository {
 
     /**
-     * Returns mappings in a data source for any of the supplied Plane work-item
+     * Returns mappings in a Notion data source for the supplied Plane work-item
      * IDs.
      */
     List<SyncMappingDocument> findByNotionDataSourceIdAndPlaneWorkItemIdIn(
@@ -18,6 +18,6 @@ public interface SyncMappingRepository {
     /** Upserts mapping rows in one unordered MongoDB bulk operation. */
     void bulkUpsert(List<SyncMappingDocument> mappings);
 
-    /** Counts completed mappings grouped by Notion data source ID. */
+    /** Counts mappings with a Notion page ID, grouped by Notion data source ID. */
     Map<String, Long> countByNotionDataSourceIds(Collection<String> notionDataSourceIds);
 }

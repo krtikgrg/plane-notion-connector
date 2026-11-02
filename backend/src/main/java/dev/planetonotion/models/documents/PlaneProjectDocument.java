@@ -85,6 +85,33 @@ public record PlaneProjectDocument(
          */
         @Field("updated_at") Instant updatedAt) {
 
+    /** Java property name for the workspace slug. */
+    public static final String FIELD_PLANE_WORKSPACE_SLUG = "planeWorkspaceSlug";
+
+    /** Java property name for this document's MongoDB identifier. */
+    public static final String FIELD_ID = "id";
+
+    /** Java property name for the Plane project ID. */
+    public static final String FIELD_PLANE_PROJECT_ID = "planeProjectId";
+
+    /** Java property name for the human-readable project name. */
+    public static final String FIELD_PLANE_PROJECT_NAME = "planeProjectName";
+
+    /** Java property name for the Plane project identifier. */
+    public static final String FIELD_PLANE_PROJECT_IDENTIFIER = "planeProjectIdentifier";
+
+    /** Java property name for the archived state. */
+    public static final String FIELD_IS_ARCHIVED_IN_PLANE = "isArchivedInPlane";
+
+    /** Java property name for catalog availability. */
+    public static final String FIELD_IS_AVAILABLE = "isAvailable";
+
+    /** Java property name for the creation timestamp. */
+    public static final String FIELD_CREATED_AT = "createdAt";
+
+    /** Java property name for the last update timestamp. */
+    public static final String FIELD_UPDATED_AT = "updatedAt";
+
     /**
      * Enforces that a project's Notion page, database, and data source are stored
      * together or not at all.

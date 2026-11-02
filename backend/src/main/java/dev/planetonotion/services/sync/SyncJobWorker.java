@@ -3,6 +3,7 @@ package dev.planetonotion.services.sync;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.models.documents.jobs.SyncJobResult;
@@ -23,6 +24,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -77,33 +79,40 @@ public class SyncJobWorker {
                     exception.getClass().getSimpleName());
         }
         scheduleFollowing(job);
-        if (job.configId() != null) notionHierarchyService.refreshSummaries();
+        if (job.configId() != null)
+            notionHierarchyService.refreshSummaries();
     }
 
     private WorkItemSyncService.SyncResult execute(SyncJobDocument job,
             AtomicReference<WorkItemSyncService.SyncResult> progress) {
         if (job.planeProjectDocumentId() == null) {
-            throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING", "A sync destination is required.");
+            throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING",
+                    "A sync destination is required.");
         }
         PlaneProjectDocument project = projectRepository.findById(job.planeProjectDocumentId())
-                .orElseThrow(() -> new ServiceException(org.springframework.http.HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The Plane project was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                        "The Plane project was not found."));
         if (job.configId() == null) {
-            if (job.scope() != dev.planetonotion.common.PlaneToNotionEnums.SyncScope.WORK_ITEM) {
-                throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING", "A sync destination is required.");
+            if (job.scope() != SyncScope.WORK_ITEM) {
+                throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING",
+                        "A sync destination is required.");
             }
             var destination = adHocDestinationService.getOrCreate();
-            return workItemSyncService.syncOneAdHoc(project, workItemId(job), destination.notionDataSourceId(), progress::set);
+            return workItemSyncService.syncOneAdHoc(project, workItemId(job), destination.notionDataSourceId(),
+                    progress::set);
         }
         SyncConfigDocument config = configRepository.findById(job.configId())
-                .orElseThrow(() -> new ServiceException(org.springframework.http.HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND", "The sync config was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
+                        "The sync config was not found."));
         boolean forceArchivedConfig = job instanceof ManualSyncJobDocument manual && manual.forceArchivedConfig();
         if (job.jobType() == SyncJobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
                 && !forceArchivedConfig) {
-            throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "CONFIG_ARCHIVED", "Enable force run on archived config to continue.");
+            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ARCHIVED",
+                    "Enable force run on archived config to continue.");
         }
         project = projectCatalogService.refreshProject(project.id());
         notionHierarchyService.synchronizeProjectPage(project);
-        if (job.scope() == dev.planetonotion.common.PlaneToNotionEnums.SyncScope.PROJECT) {
+        if (job.scope() == SyncScope.PROJECT) {
             Instant upperCutoff = job.startedAt() == null ? Instant.now() : job.startedAt();
             Instant checkpoint = jobRepository.findLatestSuccessfulProjectSyncStart(config.id())
                     .map(startedAt -> startedAt.minus(CHECKPOINT_OVERLAP)).orElse(null);
@@ -113,7 +122,8 @@ public class SyncJobWorker {
     }
 
     private void scheduleFollowing(SyncJobDocument finishedJob) {
-        if (finishedJob.configId() == null) return;
+        if (finishedJob.configId() == null)
+            return;
         try {
             configRepository.findById(finishedJob.configId())
                     .ifPresent(config -> scheduleService.afterRun(finishedJob, config));
@@ -142,7 +152,7 @@ public class SyncJobWorker {
         if (job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null) {
             return manual.planeWorkItem().workItemId();
         }
-        throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "WORK_ITEM_REFERENCE_MISSING",
+        throw new ServiceException(HttpStatus.CONFLICT, "WORK_ITEM_REFERENCE_MISSING",
                 "A manual work-item job must include its Plane work-item reference.");
     }
 

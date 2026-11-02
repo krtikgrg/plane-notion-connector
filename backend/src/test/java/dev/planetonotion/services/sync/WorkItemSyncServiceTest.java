@@ -4,47 +4,57 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 
 import dev.planetonotion.TestData;
-import dev.planetonotion.integrations.NotionClient;
-import dev.planetonotion.services.PlaneService;
-import dev.planetonotion.common.exceptions.IntegrationException;
-import dev.planetonotion.models.documents.SyncMappingDocument;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.repositories.SyncMappingRepository;
+import dev.planetonotion.services.PlaneService;
+import java.time.Instant;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
 import org.mockito.InOrder;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.JsonNode;
 
 @ExtendWith(MockitoExtension.class)
 class WorkItemSyncServiceTest {
 
-    @Mock private PlaneService planeService;
-    @Mock private NotionClient notionClient;
-    @Mock private SyncMappingRepository mappingRepository;
+    @Mock
+    private PlaneService planeService;
+    @Mock
+    private NotionClient notionClient;
+    @Mock
+    private SyncMappingRepository mappingRepository;
 
     @Test
     void syncProject_countsCreatedChangedAndUnchangedSourceProperties() {
         var project = TestData.project(new ObjectId(), "workspace", "plane-project");
-        AtomicReference<tools.jackson.databind.JsonNode> workItem = new AtomicReference<>(TestData.json("""
+        AtomicReference<JsonNode> workItem = new AtomicReference<>(TestData.json("""
                 {"id":"item-1","project_id":"plane-project","name":"One task","identifier":"DEMO-1",
                  "state":{"name":"Todo"},"priority":"high","target_date":"","updated_at":"2026-10-31T10:00:00Z",
                  "archived_at":null,"description_html":"<p>Details</p>","assignees":[],"labels":[]}
                 """));
         doAnswer(invocation -> {
-            Consumer<List<tools.jackson.databind.JsonNode>> pageConsumer = invocation.getArgument(4);
+            Consumer<List<JsonNode>> pageConsumer = invocation.getArgument(4);
             pageConsumer.accept(List.of(workItem.get()));
             return null;
         }).when(planeService).forEachProjectWorkItemPage(anyString(), anyString(), isNull(), any(), any());
@@ -62,16 +72,19 @@ class WorkItemSyncServiceTest {
 
         WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
         WorkItemSyncService.SyncResult first = service.syncProject(project, null,
-                java.time.Instant.now(), ignored -> {});
+                Instant.now(), ignored -> {
+                });
         WorkItemSyncService.SyncResult second = service.syncProject(project, null,
-                java.time.Instant.now(), ignored -> {});
+                Instant.now(), ignored -> {
+                });
         workItem.set(TestData.json("""
                 {"id":"item-1","project_id":"plane-project","name":"Renamed task","identifier":"DEMO-1",
                  "state":{"name":"Todo"},"priority":"high","target_date":"","updated_at":"2026-10-31T11:00:00Z",
                  "archived_at":null,"description_html":"<p>Details</p>","assignees":[],"labels":[]}
                 """));
         WorkItemSyncService.SyncResult third = service.syncProject(project, null,
-                java.time.Instant.now(), ignored -> {});
+                Instant.now(), ignored -> {
+                });
 
         assertThat(first.eligibleCount()).isEqualTo(1);
         assertThat(first.createdCount()).isEqualTo(1);
@@ -91,7 +104,7 @@ class WorkItemSyncServiceTest {
     void syncProject_reportsEligibleAndCompletedCountsWhenAnItemFails() {
         var project = TestData.project(new ObjectId(), "workspace", "plane-project");
         doAnswer(invocation -> {
-            java.util.function.Consumer<List<tools.jackson.databind.JsonNode>> pageConsumer = invocation.getArgument(4);
+            Consumer<List<JsonNode>> pageConsumer = invocation.getArgument(4);
             pageConsumer.accept(List.of(
                     TestData.json("{\"id\":\"item-1\",\"name\":\"One\",\"archived_at\":null}"),
                     TestData.json("{\"id\":\"item-2\",\"name\":\"Two\",\"archived_at\":null}")));
@@ -105,7 +118,7 @@ class WorkItemSyncServiceTest {
         AtomicReference<WorkItemSyncService.SyncResult> progress = new AtomicReference<>();
         WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
 
-        assertThatThrownBy(() -> service.syncProject(project, null, java.time.Instant.now(), progress::set))
+        assertThatThrownBy(() -> service.syncProject(project, null, Instant.now(), progress::set))
                 .isInstanceOf(IntegrationException.class);
 
         assertThat(progress.get().eligibleCount()).isEqualTo(2);
@@ -116,8 +129,8 @@ class WorkItemSyncServiceTest {
     @Test
     void syncOne_persistsPendingMappingBeforeCreatingNotionPage() {
         var project = TestData.project(new ObjectId(), "workspace", "plane-project");
-        var config = TestData.config(new ObjectId(), project.id(), dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus.ACTIVE,
-                dev.planetonotion.common.PlaneToNotionEnums.ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
+        var config = TestData.config(new ObjectId(), project.id(), ConfigStatus.ACTIVE,
+                ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         when(planeService.getWorkItem("workspace", "plane-project", "item-1")).thenReturn(TestData.json("""
                 {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
                 """));
@@ -126,21 +139,22 @@ class WorkItemSyncServiceTest {
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-1\"}"));
 
         WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
-        service.syncOne(project, "item-1", ignored -> {});
+        service.syncOne(project, "item-1", ignored -> {
+        });
 
         InOrder order = inOrder(mappingRepository, notionClient);
-        order.verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
-                mappings.size() == 1 && mappings.getFirst().notionPageId() == null));
+        order.verify(mappingRepository)
+                .bulkUpsert(argThat(mappings -> mappings.size() == 1 && mappings.getFirst().notionPageId() == null));
         order.verify(notionClient).createWorkItem(anyString(), any());
-        order.verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
-                mappings.size() == 1 && "notion-page-1".equals(mappings.getFirst().notionPageId())));
+        order.verify(mappingRepository).bulkUpsert(argThat(
+                mappings -> mappings.size() == 1 && "notion-page-1".equals(mappings.getFirst().notionPageId())));
     }
 
     @Test
     void syncOne_recoversPageForPendingMappingAfterAmbiguousCreate() {
         var project = TestData.project(new ObjectId(), "workspace", "plane-project");
-        var config = TestData.config(new ObjectId(), project.id(), dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus.ACTIVE,
-                dev.planetonotion.common.PlaneToNotionEnums.ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
+        var config = TestData.config(new ObjectId(), project.id(), ConfigStatus.ACTIVE,
+                ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         when(planeService.getWorkItem("workspace", "plane-project", "item-1")).thenReturn(TestData.json("""
                 {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
                 """));
@@ -151,12 +165,13 @@ class WorkItemSyncServiceTest {
                 .thenReturn(TestData.json("{\"results\":[{\"id\":\"recovered-page-id\"}]}"));
 
         WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
-        WorkItemSyncService.SyncResult result = service.syncOne(project, "item-1", ignored -> {});
+        WorkItemSyncService.SyncResult result = service.syncOne(project, "item-1", ignored -> {
+        });
 
         assertThat(result.updatedCount()).isEqualTo(1);
-        verify(notionClient).updateWorkItem(org.mockito.ArgumentMatchers.eq("recovered-page-id"), any());
-        verify(notionClient, org.mockito.Mockito.never()).createWorkItem(anyString(), any());
-        verify(mappingRepository).bulkUpsert(org.mockito.ArgumentMatchers.argThat(mappings ->
-                mappings.size() == 1 && "recovered-page-id".equals(mappings.getFirst().notionPageId())));
+        verify(notionClient).updateWorkItem(eq("recovered-page-id"), any());
+        verify(notionClient, never()).createWorkItem(anyString(), any());
+        verify(mappingRepository).bulkUpsert(argThat(
+                mappings -> mappings.size() == 1 && "recovered-page-id".equals(mappings.getFirst().notionPageId())));
     }
 }
