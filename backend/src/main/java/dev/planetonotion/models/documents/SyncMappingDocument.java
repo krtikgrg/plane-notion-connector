@@ -7,12 +7,37 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
+/**
+ * Links one Plane work item to its Notion page in a specific Notion data
+ * source.
+ * A null {@code notionPageId} marks a pending create that can be recovered on
+ * retry.
+ */
 @Document(collection = MongoCollectionConstants.SYNC_MAPPINGS)
-@CompoundIndex(name = "destination_source_unique", def = "{'target_data_source_id': 1, 'source_id': 1}", unique = true)
+// Supports exact mapping lookups and prevents duplicate rows per destination
+// and Plane item.
+@CompoundIndex(name = "notion_destination_plane_work_item_unique", def = "{'notion_data_source_id': 1, 'plane_work_item_id': 1}", unique = true)
 public record SyncMappingDocument(
+        /** Mongo identifier for this source-to-destination mapping. */
         @Id ObjectId id,
-        @Field("source_id") String sourceId,
-        @Field("target_id") String targetId,
-        @Field("target_data_source_id") String targetDataSourceId,
-        @Field("source_hash") String sourceHash) {
+
+        /** UUID of the source work item in Plane. */
+        @Field("plane_work_item_id") String planeWorkItemId,
+
+        /**
+         * Notion page ID; null until a pending page create is completed or recovered.
+         */
+        @Field("notion_page_id") String notionPageId,
+
+        /**
+         * Notion data source containing the target page; scopes mappings across
+         * destinations.
+         */
+        @Field("notion_data_source_id") String notionDataSourceId,
+
+        /**
+         * SHA-256 of normalized Plane-derived Notion properties, used to skip unchanged
+         * writes.
+         */
+        @Field("plane_source_hash") String planeSourceHash) {
 }
