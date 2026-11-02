@@ -1,5 +1,6 @@
 package dev.planetonotion.services;
 
+import dev.planetonotion.common.ApiErrorMessages;
 import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
@@ -100,7 +101,8 @@ public class ScheduleService {
     private ScheduledSyncJobDocument copyAsSkipped(ScheduledSyncJobDocument job, Instant now) {
         return new ScheduledSyncJobDocument(job.id(), job.jobType(), job.scope(), JobStatus.SKIPPED_OVERLAP,
                 job.configId(), job.planeProjectDocumentId(), job.scheduledFor(), null, now, job.attemptCount(),
-                job.result(), "SKIPPED_OVERLAP", "The scheduled occurrence elapsed while this config was busy.",
+                job.result(), JobStatus.SKIPPED_OVERLAP.name(),
+                ApiErrorMessages.Application.SCHEDULED_RUN_ELAPSED,
                 job.createdAt(), now);
     }
 
@@ -162,8 +164,8 @@ public class ScheduleService {
         return new ScheduledSyncJobDocument(new ObjectId(), JobType.SCHEDULED, SyncScope.PROJECT, status,
                 config.id(), config.planeProjectDocumentId(), scheduledFor, null, skipped ? now : null, 0,
                 SyncJobResult.empty(),
-                skipped ? "SKIPPED_OVERLAP" : null,
-                skipped ? "The scheduled occurrence elapsed while this config was busy." : null,
+                skipped ? JobStatus.SKIPPED_OVERLAP.name() : null,
+                skipped ? ApiErrorMessages.Application.SCHEDULED_RUN_ELAPSED : null,
                 now, now);
     }
 }

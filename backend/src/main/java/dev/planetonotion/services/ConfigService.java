@@ -1,5 +1,7 @@
 package dev.planetonotion.services;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
@@ -74,18 +76,19 @@ public class ConfigService {
     public SyncConfigDocument create(ConfigInput input) {
         validate(input, true);
         PlaneProjectDocument project = projectRepository.findById(input.planeProjectDocumentId())
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.PROJECT_NOT_FOUND,
                         "The selected Plane project was not found."));
         if (!project.isAvailable() || project.isArchivedInPlane()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "PROJECT_NOT_SELECTABLE",
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.PROJECT_NOT_SELECTABLE,
                     "Choose an available, non-archived Plane project.");
         }
         if (configRepository.existsByPlaneProjectDocumentId(project.id())) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS",
-                    "This Plane project already has a sync config.");
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ALREADY_EXISTS,
+                    ApiErrorMessages.Application.CONFIG_ALREADY_EXISTS);
         }
         if (hasAnyNotionDestination(project)) {
-            throw new ServiceException(HttpStatus.CONFLICT, "NOTION_DESTINATION_ALREADY_EXISTS",
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.NOTION_DESTINATION_ALREADY_EXISTS,
                     "This Plane project already has Notion destination details but no sync config. Repair the destination before retrying.");
         }
         Instant now = Instant.now();
@@ -97,8 +100,8 @@ public class ConfigService {
         try {
             saved = configRepository.save(draft);
         } catch (DuplicateKeyException exception) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS",
-                    "This Plane project already has a sync config.");
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ALREADY_EXISTS,
+                    ApiErrorMessages.Application.CONFIG_ALREADY_EXISTS);
         }
         try {
             jobRepository.save(newOperationJob(ConfigOperationType.CREATE, saved, null));
@@ -114,7 +117,7 @@ public class ConfigService {
         SyncConfigDocument old = findConfig(configId);
         if (old.operationStatus() == ConfigOperationStatus.PROVISIONING
                 || old.operationStatus() == ConfigOperationStatus.UPDATING) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_OPERATION_IN_PROGRESS",
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_OPERATION_IN_PROGRESS,
                     "Wait for the current configuration operation to finish before editing it again.");
         }
         Instant now = Instant.now();
@@ -135,8 +138,9 @@ public class ConfigService {
     public SyncConfigDocument processOperation(ConfigOperationJobDocument job) {
         SyncConfigDocument config = findConfig(job.configId());
         PlaneProjectDocument project = projectRepository.findById(config.planeProjectDocumentId())
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
-                        "The Plane project was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.PROJECT_NOT_FOUND,
+                        ApiErrorMessages.Application.PLANE_PROJECT_NOT_FOUND));
         project = ensureNotionDestination(project);
 
         SyncConfigDocument ready = config;
@@ -200,7 +204,7 @@ public class ConfigService {
             return project;
         }
         if (hasAnyNotionDestination(project)) {
-            throw new IntegrationException("NOTION_DESTINATION_INCOMPLETE", 409,
+            throw new IntegrationException(ApiErrorCodes.Notion.DESTINATION_INCOMPLETE, 409,
                     "The project's Notion destination is incomplete. Repair it before retrying setup.");
         }
         String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug())
@@ -239,8 +243,9 @@ public class ConfigService {
 
     private SyncConfigDocument findConfig(ObjectId configId) {
         return configRepository.findById(configId)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
-                        "The sync config was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.CONFIG_NOT_FOUND,
+                        ApiErrorMessages.Application.CONFIG_NOT_FOUND));
     }
 
     private void validate(ConfigInput input, boolean creating) {
@@ -284,7 +289,7 @@ public class ConfigService {
             throw invalid("Enable work_items for this prototype.");
         }
         if (options.pages()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "FEATURE_NOT_AVAILABLE",
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.FEATURE_NOT_AVAILABLE,
                     "Page sync is not implemented in the first cut.");
         }
     }
@@ -305,7 +310,7 @@ public class ConfigService {
     }
 
     private ServiceException invalid(String message) {
-        return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_CONFIG", message);
+        return new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_CONFIG, message);
     }
 
     public record ConfigInput(ObjectId planeProjectDocumentId, ConfigStatus status, SyncOptions syncOptions,

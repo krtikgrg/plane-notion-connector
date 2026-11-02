@@ -1,5 +1,6 @@
 package dev.planetonotion.common.exceptions;
 
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.models.ApiDtos.ApiError;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,21 +23,23 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IntegrationException.class)
     public ResponseEntity<ApiError> handleIntegrationException(IntegrationException exception) {
         HttpStatus status = exception.upstreamStatus() == HttpStatus.NOT_FOUND.value()
-                ? HttpStatus.NOT_FOUND : HttpStatus.BAD_GATEWAY;
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.BAD_GATEWAY;
         return ResponseEntity.status(status)
                 .body(new ApiError(exception.errorCode(), exception.getMessage()));
     }
 
-    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
+    @ExceptionHandler({ MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
+            MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class })
     public ResponseEntity<ApiError> handleBadRequest(Exception exception) {
         return ResponseEntity.badRequest()
-                .body(new ApiError("INVALID_REQUEST", "The request is missing a required value or contains an invalid value."));
+                .body(new ApiError(ApiErrorCodes.Application.INVALID_REQUEST,
+                        "The request is missing a required value or contains an invalid value."));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpectedException(Exception exception) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ApiError("INTERNAL_ERROR", "The request could not be completed."));
+                .body(new ApiError(ApiErrorCodes.Application.INTERNAL_ERROR, "The request could not be completed."));
     }
 }

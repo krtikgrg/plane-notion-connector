@@ -15,6 +15,7 @@ import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
 import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.integrations.PlaneClient;
 import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;

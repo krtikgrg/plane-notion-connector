@@ -1,5 +1,8 @@
 package dev.planetonotion.services.sync;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ProjectDefaults;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
@@ -26,6 +29,11 @@ import java.util.Map;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.BROWSE_SEGMENT;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.HTTP_SCHEME;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.HTTPS_SCHEME;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.ISSUES_SEGMENT;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.PROJECTS_SEGMENT;
 
 @Service
 public class SyncJobService {
@@ -61,22 +69,22 @@ public class SyncJobService {
                 : planeClient.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(),
                         taskUrlParts.workItemId());
         if (Boolean.TRUE.equals(item.isDraft())) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "DRAFT_WORK_ITEM",
-                    "A draft work item cannot be synced.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.DRAFT_WORK_ITEM,
+                    ApiErrorMessages.Application.DRAFT_WORK_ITEM);
         }
         if (item.archivedAt() != null) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "ARCHIVED_WORK_ITEM",
-                    "An archived work item cannot be synced.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.ARCHIVED_WORK_ITEM,
+                    ApiErrorMessages.Application.ARCHIVED_WORK_ITEM);
         }
 
         String projectId = item.projectId() == null ? taskUrlParts.projectId() : item.projectId();
         String workItemId = item.id() == null ? "" : item.id();
         if (projectId.isBlank() || workItemId.isBlank()) {
-            throw new ServiceException(HttpStatus.BAD_GATEWAY, "PLANE_RESPONSE_INVALID",
+            throw new ServiceException(HttpStatus.BAD_GATEWAY, ApiErrorCodes.Plane.RESPONSE_INVALID,
                     "Plane did not identify this work item's project and ID.");
         }
         if (taskUrlParts.projectId() != null && !taskUrlParts.projectId().equals(projectId)) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "TASK_PROJECT_MISMATCH",
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.TASK_PROJECT_MISMATCH,
                     "The task URL does not match the work item's Plane project.");
         }
 
@@ -85,7 +93,8 @@ public class SyncJobService {
         if (requestedConfigId != null) {
             SyncConfigDocument requested = config(requestedConfigId);
             if (!requested.planeProjectDocumentId().equals(project.id())) {
-                throw new ServiceException(HttpStatus.BAD_REQUEST, "TASK_PROJECT_MISMATCH",
+                throw new ServiceException(HttpStatus.BAD_REQUEST,
+                        ApiErrorCodes.Application.TASK_PROJECT_MISMATCH,
                         "The task URL does not belong to the selected config's project.");
             }
             config = requested;
@@ -120,7 +129,8 @@ public class SyncJobService {
 
     public SyncJobDocument get(ObjectId jobId) {
         return jobRepository.findById(jobId)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "SYNC_JOB_NOT_FOUND",
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.SYNC_JOB_NOT_FOUND,
                         "The sync run was not found."));
     }
 
@@ -130,7 +140,7 @@ public class SyncJobService {
             Instant now = Instant.now();
             boolean isArchived = source.archivedAt() != null || Boolean.TRUE.equals(source.isArchived());
             return projectRepository.save(new PlaneProjectDocument(null, workspaceSlug, projectId,
-                    source.name() == null ? "Unnamed project" : source.name(),
+                    source.name() == null ? ProjectDefaults.UNNAMED_PROJECT : source.name(),
                     source.identifier() == null ? "" : source.identifier(),
                     isArchived, true, null, null, null, now, now));
         });
@@ -138,26 +148,27 @@ public class SyncJobService {
 
     private SyncConfigDocument config(ObjectId configId) {
         return configRepository.findById(configId)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
-                        "The sync config was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.CONFIG_NOT_FOUND,
+                        ApiErrorMessages.Application.CONFIG_NOT_FOUND));
     }
 
     private void validateArchivedConfig(SyncConfigDocument config, boolean forceArchivedConfig) {
         if (config.status() == ConfigStatus.ARCHIVED && !forceArchivedConfig) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ARCHIVED",
-                    "Enable force run on archived config to continue.");
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ARCHIVED,
+                    ApiErrorMessages.Application.CONFIG_ARCHIVED_FORCE_RUN_REQUIRED);
         }
     }
 
     private void validateConfigQueueable(SyncConfigDocument config) {
         if (config.operationStatus() == ConfigOperationStatus.PROVISIONING) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_PROVISIONING",
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_PROVISIONING,
                     "Wait for the Notion destination to finish provisioning before queueing a sync.");
         }
         PlaneProjectDocument project = projectRepository.findById(config.planeProjectDocumentId()).orElse(null);
         if (project == null || project.notionProjectPageId() == null || project.notionDatabaseId() == null
                 || project.notionDataSourceId() == null) {
-            throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_NOT_READY",
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_NOT_READY,
                     "The Notion destination is not ready. Retry after configuration setup finishes.");
         }
     }
@@ -182,8 +193,8 @@ public class SyncJobService {
             throw invalidTaskUrl();
         }
         if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
-                || !("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme()))) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST",
+                || !(HTTPS_SCHEME.equalsIgnoreCase(url.getScheme()) || HTTP_SCHEME.equalsIgnoreCase(url.getScheme()))) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Plane.INVALID_HOST,
                     "Enter a task URL from the configured Plane instance.");
         }
         String[] path = url.getPath().split("/");
@@ -191,13 +202,13 @@ public class SyncJobService {
             throw invalidTaskUrl();
         String workspace = path[1];
         for (int index = 2; index < path.length; index++) {
-            if ("browse".equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
+            if (BROWSE_SEGMENT.equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
                 return new TaskUrl(workspace, null, path[index + 1], null);
             }
-            if ("issues".equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
+            if (ISSUES_SEGMENT.equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
                 String project = null;
                 for (int prior = 2; prior < index; prior++) {
-                    if ("projects".equals(path[prior]) && prior + 1 < index)
+                    if (PROJECTS_SEGMENT.equals(path[prior]) && prior + 1 < index)
                         project = path[prior + 1];
                 }
                 if (project != null)
@@ -208,7 +219,7 @@ public class SyncJobService {
     }
 
     private ServiceException invalidTaskUrl() {
-        return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_TASK_URL",
+        return new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_TASK_URL,
                 "Enter a Plane task URL with a workspace and task identifier.");
     }
 

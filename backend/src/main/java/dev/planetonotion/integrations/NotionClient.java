@@ -1,8 +1,11 @@
 package dev.planetonotion.integrations;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
+import dev.planetonotion.common.PlaneToNotionEnums.WorkItemLifecycle;
 import dev.planetonotion.integrations.models.NotionRequestModels.CreateDatabaseRequest;
 import dev.planetonotion.integrations.models.NotionRequestModels.CreateTitlePageRequest;
 import dev.planetonotion.integrations.models.NotionRequestModels.CreateWorkItemPageRequest;
@@ -38,11 +41,16 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import static dev.planetonotion.integrations.NotionApiConstants.Headers.*;
+import static dev.planetonotion.integrations.NotionApiConstants.Paths.*;
+import static dev.planetonotion.integrations.NotionApiConstants.PropertyNames.WORK_ITEM_ID;
+import static dev.planetonotion.integrations.NotionApiConstants.VERSION;
+import static dev.planetonotion.integrations.PlaneApiConstants.Priority.NOTION_OPTIONS;
 
 @Component
 public class NotionClient {
 
-    private static final String NOTION_VERSION = "2026-03-11";
+    private static final String WORK_ITEM_DATABASE_TITLE = "Plane Work Items";
 
     private final RestClient client;
     private final HttpService httpService;
@@ -67,17 +75,17 @@ public class NotionClient {
         this.notionBlockClient = notionBlockClient;
         this.client = builder
                 .baseUrl(properties.notionApiBaseUrl().toString())
-                .defaultHeader("Authorization", "Bearer " + properties.notionConnectionToken())
-                .defaultHeader("Notion-Version", NOTION_VERSION)
+                .defaultHeader(AUTHORIZATION, BEARER_PREFIX + properties.notionConnectionToken())
+                .defaultHeader(NOTION_VERSION, VERSION)
                 .build();
     }
 
     public String createWorkspacePage(String workspaceSlug) {
         if (properties.notionParentPageId() == null || properties.notionParentPageId().isBlank()) {
-            throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0,
+            throw new IntegrationException(ApiErrorCodes.Notion.CONFIGURATION_MISSING, 0,
                     "NOTION_PARENT_PAGE_ID is required to create workspace pages.");
         }
-        Page page = post("/v1/pages", new CreateTitlePageRequest(ParentReference.page(properties.notionParentPageId()),
+        Page page = post(PAGES, new CreateTitlePageRequest(ParentReference.page(properties.notionParentPageId()),
                 new TitlePageProperties(TitleProperty.of(richText("Plane Workspace — " + workspaceSlug)))),
                 Page.class);
         return requiredId(page, "Notion did not return the workspace page ID.");
@@ -85,46 +93,47 @@ public class NotionClient {
 
     public ProjectDestination createProjectDestination(String workspacePageId, String projectName,
             List<String> states, List<String> labels) {
-        return createDestination(workspacePageId, projectName, "Plane Work Items",
+        return createDestination(workspacePageId, projectName, WORK_ITEM_DATABASE_TITLE,
                 taskProperties(states, labels, false), "Notion did not return the project page ID.");
     }
 
     public ProjectDestination createAdHocDestination() {
         if (properties.notionParentPageId() == null || properties.notionParentPageId().isBlank()) {
-            throw new IntegrationException("NOTION_CONFIGURATION_MISSING", 0,
+            throw new IntegrationException(ApiErrorCodes.Notion.CONFIGURATION_MISSING, 0,
                     "NOTION_PARENT_PAGE_ID is required to create the shared manual-sync destination.");
         }
-        return createDestination(properties.notionParentPageId(), "Plane Manual Syncs", "Plane Work Items",
+        return createDestination(properties.notionParentPageId(), "Plane Manual Syncs", WORK_ITEM_DATABASE_TITLE,
                 taskProperties(List.of(), List.of(), true), "Notion did not return the shared manual-sync page ID.");
     }
 
     public void synchronizeProjectPage(String pageId, String projectName, String workspacePageId) {
-        Page page = get("/v1/pages/" + segment(pageId), Page.class);
-        var title = page.properties() == null ? null : page.properties().get("title");
+        Page page = get(PAGES + "/" + segment(pageId), Page.class);
+        var title = page.properties() == null ? null : page.properties().title();
         String currentTitle = title == null || title.title() == null || title.title().isEmpty()
                 ? ""
                 : title.title().get(0).plainText();
         if (!projectName.equals(currentTitle)) {
-            patch("/v1/pages/" + segment(pageId), new UpdateTitlePageRequest(
+            patch(PAGES + "/" + segment(pageId), new UpdateTitlePageRequest(
                     new TitlePageProperties(TitleProperty.of(richText(projectName)))));
         }
         if (page.parent() == null || !workspacePageId.equals(page.parent().pageId())) {
-            post("/v1/pages/" + segment(pageId) + "/move", new MovePageRequest(ParentReference.page(workspacePageId)),
+            post(PAGES + "/" + segment(pageId) + MOVE,
+                    new MovePageRequest(ParentReference.page(workspacePageId)),
                     Page.class);
         }
     }
 
     private ProjectDestination createDestination(String parentPageId, String pageTitle, String databaseTitle,
             WorkItemSchema schema, String pageIdError) {
-        Page page = post("/v1/pages", new CreateTitlePageRequest(ParentReference.page(parentPageId),
+        Page page = post(PAGES, new CreateTitlePageRequest(ParentReference.page(parentPageId),
                 new TitlePageProperties(TitleProperty.of(richText(pageTitle)))), Page.class);
         String pageId = requiredId(page, pageIdError);
         try {
-            Database database = post("/v1/databases", new CreateDatabaseRequest(ParentReference.page(pageId),
+            Database database = post(DATABASES, new CreateDatabaseRequest(ParentReference.page(pageId),
                     richText(databaseTitle), true, new InitialDataSource(schema)), Database.class);
             String databaseId = requiredId(database, "Notion did not return the database ID.");
             if (database.dataSources() == null || database.dataSources().isEmpty()) {
-                throw new IntegrationException("NOTION_DATA_SOURCE_MISSING", 502,
+                throw new IntegrationException(ApiErrorCodes.Notion.DATA_SOURCE_MISSING, 502,
                         "Notion created the database without returning a data source.");
             }
             String dataSourceId = requiredId(database.dataSources().get(0), "Notion did not return a data source ID.");
@@ -136,23 +145,23 @@ public class NotionClient {
     }
 
     public Page createWorkItem(String dataSourceId, WorkItemProperties properties) {
-        return post("/v1/pages", new CreateWorkItemPageRequest(ParentReference.dataSource(dataSourceId), properties),
+        return post(PAGES, new CreateWorkItemPageRequest(ParentReference.dataSource(dataSourceId), properties),
                 Page.class);
     }
 
     public PageQuery findWorkItemBySourceId(String dataSourceId, String sourceId) {
-        return post("/v1/data_sources/" + segment(dataSourceId) + "/query",
+        return post(DATA_SOURCES + segment(dataSourceId) + QUERY,
                 new QueryDataSourceRequest(1,
-                        new Filter("work_item_id", new RichTextFilter(sourceId))),
+                        new Filter(WORK_ITEM_ID, new RichTextFilter(sourceId))),
                 PageQuery.class);
     }
 
     public void updateWorkItem(String pageId, WorkItemProperties properties) {
-        patch("/v1/pages/" + segment(pageId), new UpdateWorkItemPageRequest(properties));
+        patch(PAGES + "/" + segment(pageId), new UpdateWorkItemPageRequest(properties));
     }
 
     public void ensureWorkItemOptions(String dataSourceId, List<String> states, List<String> labels) {
-        DataSource dataSource = get("/v1/data_sources/" + segment(dataSourceId), DataSource.class);
+        DataSource dataSource = get(DATA_SOURCES + segment(dataSourceId), DataSource.class);
         var schema = dataSource.properties();
         List<String> currentStates = getOptions(schema == null || schema.state() == null
                 ? null
@@ -171,14 +180,14 @@ public class NotionClient {
                 stateChanged ? new PropertyUpdate(new SelectSchema(optionObjects(stateOptions)), null) : null,
                 labelsChanged ? new PropertyUpdate(null,
                         new MultiSelectSchema(optionObjects(labelOptions))) : null);
-        patch("/v1/data_sources/" + segment(dataSourceId), new UpdateDataSourceRequest(updates));
+        patch(DATA_SOURCES + segment(dataSourceId), new UpdateDataSourceRequest(updates));
     }
 
     private void archivePageAfterFailure(String pageId, RuntimeException provisioningFailure) {
         try {
             notionBlockClient.archivePage(pageId);
         } catch (RuntimeException cleanupFailure) {
-            IntegrationException failure = new IntegrationException("NOTION_SETUP_CLEANUP_FAILED", 502,
+            IntegrationException failure = new IntegrationException(ApiErrorCodes.Notion.SETUP_CLEANUP_FAILED, 502,
                     "Notion setup failed, and the temporary project page could not be archived.");
             failure.addSuppressed(provisioningFailure);
             failure.addSuppressed(cleanupFailure);
@@ -195,13 +204,13 @@ public class NotionClient {
                 PropertyDefinition.urlDefinition(),
                 PropertyDefinition.richTextDefinition(),
                 PropertyDefinition.select(optionObjects(states)),
-                PropertyDefinition.select(optionObjects(List.of("urgent", "high", "medium", "low"))),
+                PropertyDefinition.select(optionObjects(NOTION_OPTIONS)),
                 PropertyDefinition.richTextDefinition(),
                 PropertyDefinition.multiSelect(optionObjects(labels)),
                 PropertyDefinition.dateDefinition(),
                 PropertyDefinition.dateDefinition(),
-                PropertyDefinition.select(optionObjects(
-                        List.of("ACTIVE", "ARCHIVED_IN_PLANE", "MISSING_FROM_PROJECT"))),
+                PropertyDefinition.select(optionObjects(List.of(WorkItemLifecycle.values()).stream()
+                        .map(WorkItemLifecycle::name).toList())),
                 includeProjectIdentity ? PropertyDefinition.richTextDefinition() : null,
                 includeProjectIdentity ? PropertyDefinition.richTextDefinition() : null,
                 includeProjectIdentity ? PropertyDefinition.richTextDefinition() : null,
@@ -251,7 +260,8 @@ public class NotionClient {
 
     private void requireToken() {
         if (properties.notionConnectionToken() == null || properties.notionConnectionToken().isBlank()) {
-            throw new IntegrationException("NOTION_TOKEN_MISSING", 0, "NOTION_CONNECTION_API_TOKEN is not configured.");
+            throw new IntegrationException(ApiErrorCodes.Notion.TOKEN_MISSING, 0,
+                    ApiErrorMessages.Notion.TOKEN_MISSING);
         }
     }
 
@@ -270,7 +280,7 @@ public class NotionClient {
 
     private String requiredId(String id, String message) {
         if (id == null || id.isBlank())
-            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, message);
+            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502, message);
         return id;
     }
 

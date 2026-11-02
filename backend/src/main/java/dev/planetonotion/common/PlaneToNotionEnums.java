@@ -41,6 +41,10 @@ public final class PlaneToNotionEnums {
         PROJECT, WORK_ITEM
     }
 
+    public enum WorkItemLifecycle {
+        ACTIVE, MISSING_FROM_PROJECT
+    }
+
     public enum IntegrationProvider {
         PLANE, NOTION
     }

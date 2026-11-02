@@ -1,7 +1,10 @@
 package dev.planetonotion.services.sync;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.common.PlaneToNotionEnums.WorkItemLifecycle;
 import dev.planetonotion.integrations.models.NotionRequestModels.DateProperty;
 import dev.planetonotion.integrations.models.NotionRequestModels.DateValue;
 import dev.planetonotion.integrations.models.NotionRequestModels.MultiSelectProperty;
@@ -37,6 +40,7 @@ import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
+import static dev.planetonotion.integrations.PlaneApiConstants.Priority.NONE;
 
 @Service
 public class WorkItemSyncService {
@@ -59,7 +63,7 @@ public class WorkItemSyncService {
             Instant updatedAtTo, Consumer<SyncResult> progressConsumer) {
         String notionDataSourceId = project.notionDataSourceId();
         if (notionDataSourceId == null || notionDataSourceId.isBlank()) {
-            throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING",
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
                     "The project's Notion destination is not configured.");
         }
         List<String> states = planeClient.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())
@@ -148,7 +152,7 @@ public class WorkItemSyncService {
                 progressConsumer.accept(accumulator.result());
                 String planeWorkItemId = workItem.id();
                 if (planeWorkItemId.isBlank()) {
-                    throw new ServiceException(HttpStatus.BAD_GATEWAY, "PLANE_RESPONSE_INVALID",
+                    throw new ServiceException(HttpStatus.BAD_GATEWAY, ApiErrorCodes.Plane.RESPONSE_INVALID,
                             "Plane returned a work item without an ID.");
                 }
                 boolean pendingCreatedNow = pendingCreatedSourceIds.contains(planeWorkItemId);
@@ -189,7 +193,7 @@ public class WorkItemSyncService {
                     if (foundPage != null) {
                         String recoveredTargetId = foundPage.id();
                         if (recoveredTargetId.isBlank()) {
-                            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502,
+                            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502,
                                     "Notion returned a matching work item without a page ID.");
                         }
                         notionClient.updateWorkItem(recoveredTargetId, properties);
@@ -225,7 +229,7 @@ public class WorkItemSyncService {
         var page = notionClient.createWorkItem(notionDataSourceId, properties);
         String targetId = page.id();
         if (targetId.isBlank()) {
-            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502,
+            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502,
                     "Notion did not return the created work item page ID.");
         }
         return new UpsertResult(true, false, false,
@@ -278,14 +282,14 @@ public class WorkItemSyncService {
                         project.planeWorkspaceSlug(), project.planeProjectId(), workItemId)),
                 RichTextProperty.of(richText(plainText(defaultValue(workItem.descriptionHtml(), "")))),
                 state.isBlank() ? null : SelectProperty.of(new NamedOption(state)),
-                priority == null || priority.isBlank() || "none".equalsIgnoreCase(priority)
+                priority == null || priority.isBlank() || NONE.equalsIgnoreCase(priority)
                         ? null
                         : SelectProperty.of(new NamedOption(priority)),
                 RichTextProperty.of(richText(String.join(", ", namesPeople(workItem.assignees())))),
                 MultiSelectProperty.of(namesLabels(workItem.labels()).stream().map(NamedOption::new).toList()),
                 targetDate.isBlank() ? null : DateProperty.of(new DateValue(targetDate)),
                 updatedAt.isBlank() ? null : DateProperty.of(new DateValue(updatedAt)),
-                SelectProperty.of(new NamedOption("ACTIVE")),
+                SelectProperty.of(new NamedOption(WorkItemLifecycle.ACTIVE.name())),
                 adHoc ? RichTextProperty.of(richText(project.planeWorkspaceSlug())) : null,
                 adHoc ? RichTextProperty.of(richText(project.planeProjectId())) : null,
                 adHoc ? RichTextProperty.of(richText(project.planeProjectIdentifier())) : null,
@@ -294,12 +298,12 @@ public class WorkItemSyncService {
 
     private void assertEligible(WorkItem workItem) {
         if (Boolean.TRUE.equals(workItem.isDraft())) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "DRAFT_WORK_ITEM",
-                    "A draft work item cannot be synced.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.DRAFT_WORK_ITEM,
+                    ApiErrorMessages.Application.DRAFT_WORK_ITEM);
         }
         if (workItem.archivedAt() != null) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "ARCHIVED_WORK_ITEM",
-                    "An archived work item cannot be synced.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.ARCHIVED_WORK_ITEM,
+                    ApiErrorMessages.Application.ARCHIVED_WORK_ITEM);
         }
     }
 

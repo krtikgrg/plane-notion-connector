@@ -1,5 +1,7 @@
 package dev.planetonotion.integrations;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
@@ -21,6 +23,11 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import static dev.planetonotion.integrations.NotionApiConstants.Paths.BLOCKS;
+import static dev.planetonotion.integrations.NotionApiConstants.Paths.CHILDREN;
+import static dev.planetonotion.integrations.NotionApiConstants.QueryParameters.PAGE_SIZE;
+import static dev.planetonotion.integrations.NotionApiConstants.QueryParameters.START_CURSOR;
+import static dev.planetonotion.integrations.NotionApiConstants.VERSION;
 
 /** Typed Notion block operations for workspace and project summaries. */
 @Component
@@ -46,8 +53,8 @@ public class NotionBlockClient {
         this.properties = properties;
         this.httpService = httpService;
         this.client = builder.baseUrl(properties.notionApiBaseUrl().toString())
-                .defaultHeader("Authorization", "Bearer " + properties.notionConnectionToken())
-                .defaultHeader("Notion-Version", "2026-03-11")
+                .defaultHeader(AUTHORIZATION, BEARER_PREFIX + properties.notionConnectionToken())
+                .defaultHeader(NOTION_VERSION, VERSION)
                 .build();
     }
 
@@ -88,17 +95,18 @@ public class NotionBlockClient {
 
     public void archivePage(String pageId) {
         requireToken();
-        httpService.delete(client, IntegrationProvider.NOTION, "/v1/blocks/" + segment(pageId),
-                "NOTION_ARCHIVE_FAILED", "Notion could not archive the temporary project page.");
+        httpService.delete(client, IntegrationProvider.NOTION, BLOCKS + segment(pageId),
+                ApiErrorCodes.Notion.ARCHIVE_FAILED, "Notion could not archive the temporary project page.");
     }
 
     private List<NotionResponseModels.Block> readChildren(String blockId) {
         List<NotionResponseModels.Block> blocks = new ArrayList<>();
         String cursor = null;
         do {
-            String path = "/v1/blocks/" + segment(blockId) + "/children?page_size=100";
+            String path = BLOCKS + segment(blockId) + CHILDREN + "?" + PAGE_SIZE + "="
+                    + NotionApiConstants.BLOCKS_PAGE_SIZE;
             if (cursor != null)
-                path += "&start_cursor=" + segment(cursor);
+                path += "&" + START_CURSOR + "=" + segment(cursor);
             BlockList response = get(path, BlockList.class);
             if (response.results() != null)
                 blocks.addAll(response.results());
@@ -224,7 +232,7 @@ public class NotionBlockClient {
         BlockAppend response = appendBlocks(pageId, List.of(tableBlock), afterBlockId);
         if (response.results() == null || response.results().isEmpty()
                 || response.results().get(0).id() == null || response.results().get(0).id().isBlank()) {
-            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502,
+            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502,
                     "Notion did not return the rebuilt summary table ID.");
         }
         if (desiredRows.size() > firstBatchSize) {
@@ -283,7 +291,7 @@ public class NotionBlockClient {
 
     private BlockAppend appendBlocks(String parentId, List<Block> blocks, String afterBlockId) {
         Position position = afterBlockId == null ? null : new Position("after_block", new AfterBlock(afterBlockId));
-        return patchForResponse("/v1/blocks/" + segment(parentId) + "/children",
+        return patchForResponse(BLOCKS + segment(parentId) + CHILDREN,
                 new AppendBlockChildrenRequest(blocks, position), BlockAppend.class);
     }
 
@@ -294,7 +302,7 @@ public class NotionBlockClient {
 
     private void patch(String blockId, Object body) {
         requireToken();
-        httpService.patchWithoutResponse(client, IntegrationProvider.NOTION, "/v1/blocks/" + segment(blockId), body);
+        httpService.patchWithoutResponse(client, IntegrationProvider.NOTION, BLOCKS + segment(blockId), body);
     }
 
     private <T> T patchForResponse(String path, Object body, Class<T> responseType) {
@@ -304,8 +312,8 @@ public class NotionBlockClient {
 
     private void requireToken() {
         if (properties.notionConnectionToken() == null || properties.notionConnectionToken().isBlank()) {
-            throw new IntegrationException("NOTION_TOKEN_MISSING", 0,
-                    "NOTION_CONNECTION_API_TOKEN is not configured.");
+            throw new IntegrationException(ApiErrorCodes.Notion.TOKEN_MISSING, 0,
+                    ApiErrorMessages.Notion.TOKEN_MISSING);
         }
     }
 

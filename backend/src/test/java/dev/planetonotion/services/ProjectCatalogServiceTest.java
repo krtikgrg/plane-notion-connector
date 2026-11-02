@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.planetonotion.integrations.models.PlaneApiModels.Project;
+import dev.planetonotion.integrations.PlaneClient;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.repositories.MongoQueryOptions.Filter;
 import dev.planetonotion.repositories.MongoQueryOptions.Sort;

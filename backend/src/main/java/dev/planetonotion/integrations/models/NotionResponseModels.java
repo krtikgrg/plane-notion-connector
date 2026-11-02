@@ -2,7 +2,6 @@ package dev.planetonotion.integrations.models;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
-import java.util.Map;
 import dev.planetonotion.integrations.models.NotionRequestModels.NamedOption;
 import dev.planetonotion.integrations.models.NotionRequestModels.ParentReference;
 
@@ -18,7 +17,10 @@ public final class NotionResponseModels {
     public record Page(
             String id,
             ParentReference parent,
-            Map<String, PageProperty> properties) {
+            PageProperties properties) {
+    }
+
+    public record PageProperties(PageProperty title) {
     }
 
     public record PageProperty(List<RichTextResponse> title) {

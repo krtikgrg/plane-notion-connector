@@ -1,5 +1,7 @@
 package dev.planetonotion.services.sync;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
@@ -131,29 +133,31 @@ public class SyncJobWorker {
     private WorkItemSyncService.SyncResult execute(SyncJobDocument job,
             AtomicReference<WorkItemSyncService.SyncResult> progress) {
         if (job.planeProjectDocumentId() == null) {
-            throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING",
-                    "A sync destination is required.");
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
+                    ApiErrorMessages.Application.SYNC_DESTINATION_REQUIRED);
         }
         PlaneProjectDocument project = projectRepository.findById(job.planeProjectDocumentId())
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
-                        "The Plane project was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.PROJECT_NOT_FOUND,
+                        ApiErrorMessages.Application.PLANE_PROJECT_NOT_FOUND));
         if (job.configId() == null) {
             if (job.scope() != SyncScope.WORK_ITEM) {
-                throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING",
-                        "A sync destination is required.");
+                throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
+                        ApiErrorMessages.Application.SYNC_DESTINATION_REQUIRED);
             }
             var destination = adHocDestinationService.getOrCreate();
             return workItemSyncService.syncOneAdHoc(project, workItemId(job), destination.notionDataSourceId(),
                     progress::set);
         }
         SyncConfigDocument config = configRepository.findById(job.configId())
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
-                        "The sync config was not found."));
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.CONFIG_NOT_FOUND,
+                        ApiErrorMessages.Application.CONFIG_NOT_FOUND));
         boolean forceArchivedConfig = job instanceof ManualSyncJobDocument manual && manual.forceArchivedConfig();
         if (job.jobType() == JobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
                 && !forceArchivedConfig) {
-            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ARCHIVED",
-                    "Enable force run on archived config to continue.");
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ARCHIVED,
+                    ApiErrorMessages.Application.CONFIG_ARCHIVED_FORCE_RUN_REQUIRED);
         }
         project = projectCatalogService.refreshProject(project.id());
         notionHierarchyService.synchronizeProjectPage(project);
@@ -198,7 +202,7 @@ public class SyncJobWorker {
         if (job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null) {
             return manual.planeWorkItem().workItemId();
         }
-        throw new ServiceException(HttpStatus.CONFLICT, "WORK_ITEM_REFERENCE_MISSING",
+        throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.WORK_ITEM_REFERENCE_MISSING,
                 "A manual work-item job must include its Plane work-item reference.");
     }
 
@@ -214,7 +218,8 @@ public class SyncJobWorker {
         if (exception instanceof ServiceException service) {
             return new ErrorDetails(service.errorCode(), service.getMessage());
         }
-        return new ErrorDetails("SYNC_FAILED", "The sync failed. Check the local service logs for details.");
+        return new ErrorDetails(ApiErrorCodes.Application.SYNC_FAILED,
+                "The sync failed. Check the local service logs for details.");
     }
 
     private ErrorDetails configurationErrorDetails(Exception exception) {
@@ -224,7 +229,7 @@ public class SyncJobWorker {
         if (exception instanceof ServiceException service) {
             return new ErrorDetails(service.errorCode(), service.getMessage());
         }
-        return new ErrorDetails("CONFIG_OPERATION_FAILED",
+        return new ErrorDetails(ApiErrorCodes.Application.CONFIG_OPERATION_FAILED,
                 "Configuration setup failed. Check the local service logs for details.");
     }
 

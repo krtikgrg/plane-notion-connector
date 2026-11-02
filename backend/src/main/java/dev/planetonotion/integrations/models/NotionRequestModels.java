@@ -2,6 +2,7 @@ package dev.planetonotion.integrations.models;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import dev.planetonotion.integrations.NotionApiConstants.PropertyNames;
 import java.util.List;
 
 /** Typed request payloads for the Notion API. */
@@ -52,7 +53,7 @@ public final class NotionRequestModels {
     public record WorkItemProperties(
             TitleProperty name,
             @JsonProperty("identifier") RichTextProperty identifier,
-            @JsonProperty("work_item_id") RichTextProperty workItemId,
+            @JsonProperty(PropertyNames.WORK_ITEM_ID) RichTextProperty workItemId,
             @JsonProperty("work_item_url") UrlProperty workItemUrl,
             RichTextProperty description,
             SelectProperty state,
@@ -131,7 +132,7 @@ public final class NotionRequestModels {
     public record WorkItemSchema(
             PropertyDefinition name,
             PropertyDefinition identifier,
-            @JsonProperty("work_item_id") PropertyDefinition workItemId,
+            @JsonProperty(PropertyNames.WORK_ITEM_ID) PropertyDefinition workItemId,
             @JsonProperty("work_item_url") PropertyDefinition workItemUrl,
             PropertyDefinition description,
             PropertyDefinition state,

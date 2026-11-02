@@ -1,5 +1,7 @@
 package dev.planetonotion.controllers;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.MongoIdParser;
 import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
@@ -88,8 +90,8 @@ public class SyncJobController {
 
     private void validatePageSize(int pageSize) {
         if (pageSize < 1 || pageSize > 100) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PAGE_SIZE",
-                    "page_size must be between 1 and 100.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_PAGE_SIZE,
+                    ApiErrorMessages.Application.INVALID_PAGE_SIZE);
         }
     }
 }

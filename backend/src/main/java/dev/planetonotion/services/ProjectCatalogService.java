@@ -1,5 +1,7 @@
 package dev.planetonotion.services;
 
+import dev.planetonotion.common.ProjectDefaults;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.integrations.PlaneClient;
@@ -20,6 +22,9 @@ import java.util.Set;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.HTTP_SCHEME;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.HTTPS_SCHEME;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.PROJECTS_SEGMENT;
 
 @Service
 public class ProjectCatalogService {
@@ -91,12 +96,12 @@ public class ProjectCatalogService {
             throw invalidProjectUrl();
         }
         if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
-                || !("https".equalsIgnoreCase(url.getScheme()) || "http".equalsIgnoreCase(url.getScheme()))) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PLANE_HOST",
+                || !(HTTPS_SCHEME.equalsIgnoreCase(url.getScheme()) || HTTP_SCHEME.equalsIgnoreCase(url.getScheme()))) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Plane.INVALID_HOST,
                     "Enter a project URL from the configured Plane instance.");
         }
         String[] parts = url.getPath().split("/");
-        if (parts.length < 4 || parts[1].isBlank() || !"projects".equals(parts[2]) || parts[3].isBlank()) {
+        if (parts.length < 4 || parts[1].isBlank() || !PROJECTS_SEGMENT.equals(parts[2]) || parts[3].isBlank()) {
             throw invalidProjectUrl();
         }
         String workspaceSlug = parts[1];
@@ -111,7 +116,8 @@ public class ProjectCatalogService {
 
     public PlaneProjectDocument findById(ObjectId projectRef) {
         return projectRepository.findById(projectRef)
-                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
+                        ApiErrorCodes.Application.PROJECT_NOT_FOUND,
                         "The Plane project is not in the catalog."));
     }
 
@@ -130,7 +136,9 @@ public class ProjectCatalogService {
             Instant now, boolean available, String fallbackProjectId) {
         return new PlaneProjectDocument(
                 old == null ? null : old.id(), workspace, source.id() == null ? fallbackProjectId : source.id(),
-                source.name() == null ? (old == null ? "Unnamed project" : old.planeProjectName()) : source.name(),
+                source.name() == null
+                        ? (old == null ? ProjectDefaults.UNNAMED_PROJECT : old.planeProjectName())
+                        : source.name(),
                 source.identifier() == null ? (old == null ? "" : old.planeProjectIdentifier()) : source.identifier(),
                 isArchived(source, old), available,
                 old == null ? null : old.notionProjectPageId(),
@@ -153,13 +161,13 @@ public class ProjectCatalogService {
     }
 
     private ServiceException invalidProjectUrl() {
-        return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_PROJECT_URL",
+        return new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_PROJECT_URL,
                 "Enter a Plane project URL containing its workspace and project.");
     }
 
     private String requiredWorkspaceSlug(String workspaceSlug) {
         if (workspaceSlug == null || workspaceSlug.isBlank()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "WORKSPACE_SLUG_REQUIRED",
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.WORKSPACE_SLUG_REQUIRED,
                     "Enter a Plane workspace slug.");
         }
         return workspaceSlug.trim();

@@ -1,5 +1,7 @@
 package dev.planetonotion.integrations;
 
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
@@ -22,6 +24,11 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import static dev.planetonotion.integrations.PlaneApiConstants.Paths.*;
+import static dev.planetonotion.integrations.PlaneApiConstants.QueryParameters.*;
+import static dev.planetonotion.integrations.PlaneApiConstants.QueryValues.*;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.PROJECTS_SEGMENT;
+import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.ISSUES_SEGMENT;
 
 /** Typed HTTP boundary for Plane project, work-item, state, and label APIs. */
 @Component
@@ -62,66 +69,65 @@ public class PlaneClient {
     }
 
     public void testConnection() {
-        get("/api/v2/users/me/", ConnectionUser.class);
+        get(USERS_ME, ConnectionUser.class);
     }
 
     public void forEachProjectPage(String workspaceSlug, Consumer<List<Project>> pageConsumer) {
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("include_archived", "true");
-        query.put("fields", "id,name,identifier,archived_at");
-        forEachPage("/api/v2/workspaces/{workspace}/projects/", query, PROJECT_PAGE_TYPE,
+        query.put(INCLUDE_ARCHIVED, TRUE);
+        query.put(FIELDS, PROJECT_FIELDS);
+        forEachPage(WORKSPACES + "{workspace}" + PROJECTS, query, PROJECT_PAGE_TYPE,
                 pageConsumer, workspaceSlug);
     }
 
     public Project getProject(String workspaceSlug, String projectId) {
-        return get("/api/v2/workspaces/" + segment(workspaceSlug) + "/projects/" + segment(projectId) + "/",
+        return get(WORKSPACES + segment(workspaceSlug) + PROJECTS + segment(projectId) + "/",
                 Project.class);
     }
 
     public void forEachProjectWorkItemPage(String workspaceSlug, String projectId, Instant updatedAtFrom,
             Instant updatedAtTo, Consumer<List<WorkItem>> pageConsumer) {
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("archived", "false");
-        query.put("is_draft", "false");
-        query.put("expand", "state,assignees,labels");
-        query.put("fields", String.join(",", List.of("id", "identifier", "project_id", "state_id", "name",
-                "description_html", "priority", "assignee_ids", "label_ids", "target_date", "archived_at",
-                "updated_at", "is_draft")));
-        query.put("paginate", "cursor");
-        query.put("order_by", "updated_at");
+        query.put(ARCHIVED, FALSE);
+        query.put(IS_DRAFT, FALSE);
+        query.put(EXPAND, WORK_ITEM_EXPANSIONS);
+        query.put(FIELDS, WORK_ITEM_FIELDS);
+        query.put(PAGINATE, CURSOR_PAGINATION);
+        query.put(ORDER_BY, UPDATED_AT);
         if (updatedAtFrom != null)
-            query.put("updated_at__gte", updatedAtFrom.toString());
+            query.put(UPDATED_AT_GTE, updatedAtFrom.toString());
         if (updatedAtTo != null)
-            query.put("updated_at__lte", updatedAtTo.toString());
-        forEachPage("/api/v2/workspaces/{workspace}/projects/{project}/work-items/", query, WORK_ITEM_PAGE_TYPE,
+            query.put(UPDATED_AT_LTE, updatedAtTo.toString());
+        forEachPage(WORKSPACES + "{workspace}" + PROJECTS + "{project}" + WORK_ITEMS, query,
+                WORK_ITEM_PAGE_TYPE,
                 pageConsumer, workspaceSlug, projectId);
     }
 
     public WorkItem getWorkItemByIdentifier(String workspaceSlug, String identifier) {
-        return get("/api/v2/workspaces/" + segment(workspaceSlug) + "/work-items/" + segment(identifier)
-                + "/?expand=state,assignees,labels", WorkItem.class);
+        return get(WORKSPACES + segment(workspaceSlug) + WORK_ITEMS + segment(identifier)
+                + "/?" + EXPAND + "=" + WORK_ITEM_EXPANSIONS, WorkItem.class);
     }
 
     public WorkItem getWorkItem(String workspaceSlug, String projectId, String workItemId) {
-        return get("/api/v2/workspaces/" + segment(workspaceSlug) + "/projects/" + segment(projectId)
-                + "/work-items/" + segment(workItemId) + "/?expand=state,assignees,labels", WorkItem.class);
+        return get(WORKSPACES + segment(workspaceSlug) + PROJECTS + segment(projectId) + WORK_ITEMS
+                + segment(workItemId) + "/?" + EXPAND + "=" + WORK_ITEM_EXPANSIONS, WorkItem.class);
     }
 
     public String projectUrl(String workspaceSlug, String projectId) {
-        return appBaseUrl() + "/" + segment(workspaceSlug) + "/projects/" + segment(projectId);
+        return appBaseUrl() + "/" + segment(workspaceSlug) + "/" + PROJECTS_SEGMENT + "/" + segment(projectId);
     }
 
     public String workItemUrl(String workspaceSlug, String projectId, String workItemId) {
-        return projectUrl(workspaceSlug, projectId) + "/issues/" + segment(workItemId);
+        return projectUrl(workspaceSlug, projectId) + "/" + ISSUES_SEGMENT + "/" + segment(workItemId);
     }
 
     public List<State> listWorkItemStates(String workspaceSlug, String projectId) {
-        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/states/", Map.of(), STATE_PAGE_TYPE,
+        return getAllPages(WORKSPACES + "{workspace}" + PROJECTS + "{project}" + STATES, Map.of(), STATE_PAGE_TYPE,
                 workspaceSlug, projectId);
     }
 
     public List<Label> listWorkItemLabels(String workspaceSlug, String projectId) {
-        return getAllPages("/api/v2/workspaces/{workspace}/projects/{project}/labels/", Map.of(), LABEL_PAGE_TYPE,
+        return getAllPages(WORKSPACES + "{workspace}" + PROJECTS + "{project}" + LABELS, Map.of(), LABEL_PAGE_TYPE,
                 workspaceSlug, projectId);
     }
 
@@ -137,24 +143,24 @@ public class PlaneClient {
             Object... pathVariables) {
         int offset = 0;
         String cursor = null;
-        boolean cursorPagination = "cursor".equals(filters.get("paginate"));
+        boolean cursorPagination = CURSOR_PAGINATION.equals(filters.get(PAGINATE));
         while (true) {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.planeApiBaseUrl())
                     .path(pathTemplate)
-                    .queryParam("per_page", PLANE_API_PAGE_SIZE);
+                    .queryParam(PER_PAGE, PLANE_API_PAGE_SIZE);
             if (!cursorPagination)
-                builder.queryParam("count", "false");
+                builder.queryParam(COUNT, FALSE);
             if (cursorPagination) {
                 if (cursor != null)
-                    builder.queryParam("cursor", cursor);
+                    builder.queryParam(CURSOR, cursor);
             } else {
-                builder.queryParam("offset", offset);
+                builder.queryParam(OFFSET, offset);
             }
             filters.forEach(builder::queryParam);
             Page<T> page = get(builder.buildAndExpand(pathVariables).encode().toUri(), responseType);
             List<T> data = page.data();
             if (data == null) {
-                throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
+                throw new IntegrationException(ApiErrorCodes.Plane.RESPONSE_INVALID, 502,
                         "Plane returned an invalid list response.");
             }
             pageConsumer.accept(data);
@@ -166,15 +172,15 @@ public class PlaneClient {
                     break;
                 String nextCursor = page.nextCursor();
                 if (nextCursor == null || nextCursor.isBlank() || nextCursor.equals(cursor)) {
-                    throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
-                            "Plane returned invalid pagination data.");
+                    throw new IntegrationException(ApiErrorCodes.Plane.RESPONSE_INVALID, 502,
+                            ApiErrorMessages.Plane.INVALID_PAGINATION);
                 }
                 cursor = nextCursor;
             } else if (page.next() != null && !page.next().isBlank()) {
                 int nextOffset = parseOffset(page.next(), offset);
                 if (nextOffset <= offset) {
-                    throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
-                            "Plane returned invalid pagination data.");
+                    throw new IntegrationException(ApiErrorCodes.Plane.RESPONSE_INVALID, 502,
+                            ApiErrorMessages.Plane.INVALID_PAGINATION);
                 }
                 offset = nextOffset;
             } else if (data.size() == PLANE_API_PAGE_SIZE) {
@@ -191,20 +197,21 @@ public class PlaneClient {
             if (value != null) {
                 for (String pair : value.split("&")) {
                     String[] parts = pair.split("=", 2);
-                    if (parts.length == 2 && "offset".equals(parts[0]))
+                    if (parts.length == 2 && OFFSET.equals(parts[0]))
                         return Integer.parseInt(parts[1]);
                 }
             }
             return currentOffset + PLANE_API_PAGE_SIZE;
         } catch (RuntimeException exception) {
-            throw new IntegrationException("PLANE_RESPONSE_INVALID", 502,
-                    "Plane returned invalid pagination data.");
+            throw new IntegrationException(ApiErrorCodes.Plane.RESPONSE_INVALID, 502,
+                    ApiErrorMessages.Plane.INVALID_PAGINATION);
         }
     }
 
     private <T> T get(String path, Class<T> responseType) {
         if (properties.planePersonalAccessToken() == null || properties.planePersonalAccessToken().isBlank()) {
-            throw new IntegrationException("PLANE_TOKEN_MISSING", 0, "PLANE_PERSONAL_ACCESS_TOKEN is not configured.");
+            throw new IntegrationException(ApiErrorCodes.Plane.TOKEN_MISSING, 0,
+                    ApiErrorMessages.Plane.TOKEN_MISSING);
         }
         return httpService.get(client, IntegrationProvider.PLANE,
                 URI.create(properties.planeApiBaseUrl().toString().replaceAll("/$", "") + path), responseType);
@@ -212,7 +219,8 @@ public class PlaneClient {
 
     private <T> T get(URI uri, ParameterizedTypeReference<T> responseType) {
         if (properties.planePersonalAccessToken() == null || properties.planePersonalAccessToken().isBlank()) {
-            throw new IntegrationException("PLANE_TOKEN_MISSING", 0, "PLANE_PERSONAL_ACCESS_TOKEN is not configured.");
+            throw new IntegrationException(ApiErrorCodes.Plane.TOKEN_MISSING, 0,
+                    ApiErrorMessages.Plane.TOKEN_MISSING);
         }
         return httpService.get(client, IntegrationProvider.PLANE, uri, responseType);
     }

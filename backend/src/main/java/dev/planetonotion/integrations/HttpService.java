@@ -1,5 +1,6 @@
 package dev.planetonotion.integrations;
 
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
 import java.net.URI;
@@ -55,7 +56,7 @@ public class HttpService {
         T response = execute(provider, request);
         if (response == null) {
             String label = label(provider);
-            throw new IntegrationException(provider.name() + "_RESPONSE_INVALID", 502,
+            throw new IntegrationException(errorCode(provider, IntegrationError.RESPONSE_INVALID), 502,
                     label + " returned an empty response.");
         }
         return response;
@@ -66,15 +67,34 @@ public class HttpService {
             return request.get();
         } catch (RestClientResponseException exception) {
             int status = exception.getStatusCode().value();
-            throw new IntegrationException(provider.name() + "_API_ERROR", status,
+            throw new IntegrationException(errorCode(provider, IntegrationError.API_ERROR), status,
                     label(provider) + " API request failed (HTTP " + status + ").");
         } catch (RestClientException exception) {
-            throw new IntegrationException(provider.name() + "_UNAVAILABLE", 0,
+            throw new IntegrationException(errorCode(provider, IntegrationError.UNAVAILABLE), 0,
                     "Could not connect to the configured " + label(provider) + " API.");
         }
     }
 
+    private String errorCode(IntegrationProvider provider, IntegrationError error) {
+        return switch (provider) {
+            case PLANE -> switch (error) {
+                case RESPONSE_INVALID -> ApiErrorCodes.Plane.RESPONSE_INVALID;
+                case API_ERROR -> ApiErrorCodes.Plane.API_ERROR;
+                case UNAVAILABLE -> ApiErrorCodes.Plane.UNAVAILABLE;
+            };
+            case NOTION -> switch (error) {
+                case RESPONSE_INVALID -> ApiErrorCodes.Notion.RESPONSE_INVALID;
+                case API_ERROR -> ApiErrorCodes.Notion.API_ERROR;
+                case UNAVAILABLE -> ApiErrorCodes.Notion.UNAVAILABLE;
+            };
+        };
+    }
+
     private String label(IntegrationProvider provider) {
         return provider.name().charAt(0) + provider.name().substring(1).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private enum IntegrationError {
+        RESPONSE_INVALID, API_ERROR, UNAVAILABLE
     }
 }
