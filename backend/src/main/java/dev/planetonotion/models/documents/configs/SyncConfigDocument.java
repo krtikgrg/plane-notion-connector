@@ -1,6 +1,7 @@
 package dev.planetonotion.models.documents.configs;
 
 import dev.planetonotion.common.MongoCollectionConstants;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import java.time.Instant;
 import org.bson.types.ObjectId;
@@ -24,6 +25,12 @@ public record SyncConfigDocument(
 
         /** Lifecycle state that controls whether scheduled syncs run. */
         ConfigStatus status,
+
+        /** Provisioning or update work currently being handled by the worker. */
+        @Field("operation_status") ConfigOperationStatus operationStatus,
+
+        /** Sanitized detail from the last failed config operation, if any. */
+        @Field("operation_error") String operationError,
 
         /**
          * MongoDB ID of the Plane project catalog document this configuration syncs.

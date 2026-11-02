@@ -6,35 +6,38 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.atLeastOnce;
-import org.mockito.ArgumentCaptor;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.doAnswer;
 
-import dev.planetonotion.TestData;
+import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationType;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
-import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient;
-import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
-import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.models.documents.jobs.ConfigOperationJobDocument;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
+import dev.planetonotion.repositories.JobRepository;
 import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.TestData;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Mock;
 
 @ExtendWith(MockitoExtension.class)
 class ConfigServiceTest {
@@ -44,9 +47,13 @@ class ConfigServiceTest {
     @Mock
     private PlaneProjectRepository projectRepository;
     @Mock
-    private PlaneService planeService;
+    private JobRepository jobRepository;
+    @Mock
+    private PlaneClient planeClient;
     @Mock
     private NotionClient notionClient;
+    @Mock
+    private NotionBlockClient notionBlockClient;
     @Mock
     private NotionHierarchyService notionHierarchyService;
     @Mock
@@ -56,16 +63,14 @@ class ConfigServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ConfigService(configRepository, projectRepository, planeService, notionClient,
-                notionHierarchyService, scheduleService);
+        service = new ConfigService(configRepository, projectRepository, planeClient, notionClient, notionBlockClient,
+                notionHierarchyService, scheduleService, jobRepository);
     }
 
     @Test
     void list_ordersConfigsByMostRecentCreationTime() {
         when(configRepository.findAll(any())).thenReturn(List.of());
-
         assertThat(service.list()).isEmpty();
-
         ArgumentCaptor<MongoQueryOptions> options = ArgumentCaptor.forClass(MongoQueryOptions.class);
         verify(configRepository).findAll(options.capture());
         assertThat(options.getValue().filters()).isEmpty();
@@ -74,157 +79,102 @@ class ConfigServiceTest {
     }
 
     @Test
-    void create_provisionsDestinationPersistsConfigAndSchedulesIt() {
-        ObjectId projectRef = new ObjectId();
+    void createReturnsProvisioningConfigAndQueuesWorkWithoutCallingIntegrations() {
+        ObjectId projectId = new ObjectId();
         ObjectId configId = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
-                "plane-project");
-        when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
-        when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
-                        Instant.now(), Instant.now()));
-        when(planeService.listWorkItemStates("demo-workspace", "plane-project"))
-                .thenReturn(List.of(TestData.json("{\"name\":\"Todo\"}")));
-        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of("Todo"), List.of()))
-                .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
-        when(configRepository.save(any())).thenAnswer(invocation -> TestData.withId(
-                invocation.getArgument(0), configId));
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(
+                TestData.projectWithoutNotionDestination(projectId, "demo-workspace", "plane-project")));
+        when(configRepository.existsByPlaneProjectDocumentId(projectId)).thenReturn(false);
+        when(configRepository.save(any()))
+                .thenAnswer(invocation -> TestData.withId(invocation.getArgument(0), configId));
+        when(jobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        SyncConfigDocument saved = service.create(intervalInput(projectRef, ConfigStatus.ACTIVE));
+        SyncConfigDocument created = service.create(intervalInput(projectId, ConfigStatus.ACTIVE));
 
-        assertThat(saved.id()).isEqualTo(configId);
-        ArgumentCaptor<PlaneProjectDocument> projectCaptor = ArgumentCaptor.forClass(PlaneProjectDocument.class);
-        verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
-        PlaneProjectDocument savedProject = projectCaptor.getValue();
-        assertThat(savedProject.notionProjectPageId()).isEqualTo("page-id");
-        assertThat(savedProject.notionDatabaseId()).isEqualTo("db-id");
-        assertThat(savedProject.notionDataSourceId()).isEqualTo("source-id");
-        verify(scheduleService).reset(saved);
+        assertThat(created.id()).isEqualTo(configId);
+        assertThat(created.operationStatus()).isEqualTo(ConfigOperationStatus.PROVISIONING);
+        ArgumentCaptor<ConfigOperationJobDocument> job = ArgumentCaptor.forClass(ConfigOperationJobDocument.class);
+        verify(jobRepository).save(job.capture());
+        assertThat(job.getValue().jobType()).isEqualTo(JobType.CONFIGURATION);
+        assertThat(job.getValue().operationType()).isEqualTo(ConfigOperationType.CREATE);
+        assertThat(job.getValue().jobStatus()).isEqualTo(JobStatus.PENDING);
+        verify(notionClient, never()).createProjectDestination(any(), any(), any(), any());
+        verify(scheduleService, never()).reset(any());
     }
 
     @Test
-    void create_rejectsPageSyncBeforeProvisioningDestination() {
+    void createRejectsPageSyncBeforeQueueing() {
         ConfigService.ConfigInput input = new ConfigService.ConfigInput(new ObjectId(), ConfigStatus.ACTIVE,
-                new SyncOptions(true, true), new SyncSchedule(ScheduleType.INTERVAL, null, null,
-                        new SyncSchedule.Interval(30, IntervalUnit.MINUTES), null));
-
-        assertThatThrownBy(() -> service.create(input))
-                .isInstanceOf(ServiceException.class).hasMessageContaining("Page sync is not implemented");
-        verify(notionClient, never()).createProjectDestination(any(), any(), any(), any());
+                new SyncOptions(true, true), intervalInput(null, ConfigStatus.ACTIVE).schedule());
+        assertThatThrownBy(() -> service.create(input)).isInstanceOf(ServiceException.class)
+                .hasMessageContaining("Page sync is not implemented");
+        verify(jobRepository, never()).save(any());
     }
 
     @Test
-    void intervalUnitEnumExposesOnlySupportedCadences() {
-        assertThat(IntervalUnit.values())
-                .containsExactly(IntervalUnit.MINUTES, IntervalUnit.HOURS);
-    }
-
-    @Test
-    void create_rejectsDuplicateProjectConfig() {
-        ObjectId projectRef = new ObjectId();
-        when(projectRepository.findById(projectRef)).thenReturn(Optional.of(
-                TestData.project(projectRef, "demo-workspace", "plane-project")));
-        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(true);
-
-        assertThatThrownBy(() -> service.create(intervalInput(projectRef, ConfigStatus.ACTIVE)))
+    void createRejectsDuplicateProjectConfig() {
+        ObjectId projectId = new ObjectId();
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(
+                TestData.project(projectId, "demo-workspace", "plane-project")));
+        when(configRepository.existsByPlaneProjectDocumentId(projectId)).thenReturn(true);
+        assertThatThrownBy(() -> service.create(intervalInput(projectId, ConfigStatus.ACTIVE)))
                 .isInstanceOf(ServiceException.class).hasMessageContaining("already has a sync config");
-        verify(notionClient, never()).createProjectDestination(any(), any(), any(), any());
+        verify(jobRepository, never()).save(any());
     }
 
     @Test
-    void create_removesConfigAndDestinationWhenScheduleSeedingFails() {
-        ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
-                "plane-project");
-        when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
-        when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
-                        Instant.now(), Instant.now()));
-        when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
-                .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
-        when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        RuntimeException scheduleFailure = new IllegalStateException("schedule write failed");
-        doThrow(scheduleFailure).when(scheduleService).reset(any());
-
-        assertThatThrownBy(() -> service.create(intervalInput(projectRef, ConfigStatus.ACTIVE)))
-                .isSameAs(scheduleFailure);
-
-        verify(configRepository).deleteById(any(ObjectId.class));
-        verify(scheduleService).cancelPending(any(ObjectId.class));
-        verify(notionClient).archivePage("page-id");
-    }
-
-    @Test
-    void create_reportsWhenCompensationCannotArchiveNotionDestination() {
-        ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace",
-                "plane-project");
-        when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
-        when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
-                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id",
-                        Instant.now(), Instant.now()));
-        when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(planeService.listWorkItemLabels("demo-workspace", "plane-project")).thenReturn(List.of());
-        when(notionClient.createProjectDestination("workspace-page-id", "Demo Project", List.of(), List.of()))
-                .thenReturn(new NotionClient.ProjectDestination("page-id", "db-id", "source-id"));
-        when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        doThrow(new IllegalStateException("schedule write failed")).when(scheduleService).reset(any());
-        doThrow(new IllegalStateException("archive failed")).when(notionClient).archivePage("page-id");
-
-        assertThatThrownBy(() -> service.create(intervalInput(projectRef, ConfigStatus.ACTIVE)))
-                .isInstanceOf(IntegrationException.class)
-                .hasFieldOrPropertyWithValue("errorCode", "CONFIG_CREATE_CLEANUP_FAILED");
-
-        verify(configRepository).deleteById(any(ObjectId.class));
-        verify(scheduleService).cancelPending(any(ObjectId.class));
-    }
-
-    @Test
-    void update_persistsNewStatusAndResetsSchedule() {
+    void updateKeepsCurrentSettingsAndQueuesDesiredSettingsWhileHoldingPendingSyncJobs() {
         ObjectId configId = new ObjectId();
-        ObjectId projectRef = new ObjectId();
-        SyncConfigDocument existing = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
+        ObjectId projectId = new ObjectId();
+        SyncConfigDocument existing = TestData.config(configId, projectId, ConfigStatus.ACTIVE,
                 ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         when(configRepository.findById(configId)).thenReturn(Optional.of(existing));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        ConfigService.ConfigInput update = intervalInput(null, ConfigStatus.DISABLED);
+        when(jobRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        SyncConfigDocument saved = service.update(configId, update);
+        SyncConfigDocument queued = service.update(configId, intervalInput(null, ConfigStatus.DISABLED));
 
-        assertThat(saved.status()).isEqualTo(ConfigStatus.DISABLED);
-        assertThat(saved.planeProjectDocumentId()).isEqualTo(projectRef);
-        verify(scheduleService).reset(saved);
+        assertThat(queued.status()).isEqualTo(ConfigStatus.ACTIVE);
+        assertThat(queued.operationStatus()).isEqualTo(ConfigOperationStatus.UPDATING);
+        assertThat(queued.schedule()).isEqualTo(existing.schedule());
+        verify(jobRepository).holdPendingByConfigId(org.mockito.ArgumentMatchers.eq(configId), any());
+        ArgumentCaptor<ConfigOperationJobDocument> job = ArgumentCaptor.forClass(ConfigOperationJobDocument.class);
+        verify(jobRepository).save(job.capture());
+        assertThat(job.getValue().operationType()).isEqualTo(ConfigOperationType.UPDATE);
+        assertThat(job.getValue().targetStatus()).isEqualTo(ConfigStatus.DISABLED);
     }
 
     @Test
-    void update_restoresPreviousConfigAndScheduleWhenReseedingFails() {
+    void processingCreateOperationProvisionsDestinationAndScheduleThenMarksConfigReady() {
         ObjectId configId = new ObjectId();
-        ObjectId projectRef = new ObjectId();
-        SyncConfigDocument existing = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
+        ObjectId projectId = new ObjectId();
+        SyncConfigDocument config = TestData.config(configId, projectId, ConfigStatus.ACTIVE,
                 ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
-        when(configRepository.findById(configId)).thenReturn(Optional.of(existing));
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectId, "workspace",
+                "plane-project");
+        when(configRepository.findById(configId)).thenReturn(Optional.of(config));
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project));
+        when(notionHierarchyService.ensureWorkspacePage("workspace"))
+                .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "workspace", "workspace-page", Instant.now(),
+                        Instant.now()));
+        when(planeClient.listWorkItemStates("workspace", "plane-project")).thenReturn(List.of());
+        when(planeClient.listWorkItemLabels("workspace", "plane-project")).thenReturn(List.of());
+        when(notionClient.createProjectDestination("workspace-page", "Demo Project", List.of(), List.of()))
+                .thenReturn(new NotionClient.ProjectDestination("notion-page", "notion-db", "notion-source"));
+        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        doAnswer(invocation -> {
-            SyncConfigDocument config = invocation.getArgument(0);
-            if (config.status() == ConfigStatus.DISABLED)
-                throw new IllegalStateException("schedule write failed");
-            return null;
-        }).when(scheduleService).reset(any());
+        ConfigOperationJobDocument job = new ConfigOperationJobDocument(new ObjectId(), JobType.CONFIGURATION,
+                JobStatus.RUNNING, configId, ConfigOperationType.CREATE, null, null, null,
+                Instant.now(), null, 1, null, null, Instant.now(), Instant.now());
 
-        assertThatThrownBy(() -> service.update(configId, intervalInput(null, ConfigStatus.DISABLED)))
-                .isInstanceOf(IllegalStateException.class).hasMessage("schedule write failed");
+        SyncConfigDocument ready = service.processOperation(job);
 
-        verify(configRepository).save(existing);
-        verify(scheduleService).reset(existing);
+        assertThat(ready.operationStatus()).isEqualTo(ConfigOperationStatus.READY);
+        verify(projectRepository).save(org.mockito.ArgumentMatchers.argThat(
+                saved -> "notion-source".equals(saved.notionDataSourceId())));
+        verify(scheduleService).reset(ready);
+        verify(jobRepository).releaseHeldByConfigId(org.mockito.ArgumentMatchers.eq(configId), any());
+        verify(notionHierarchyService).refreshSummaries();
     }
 
     private ConfigService.ConfigInput intervalInput(ObjectId projectRef, ConfigStatus status) {

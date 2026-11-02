@@ -1,10 +1,11 @@
 package dev.planetonotion.repositories;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
-import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.JobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,27 +20,48 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Repository;
 
 /**
- * MongoTemplate implementation for sync-job persistence and worker
+ * MongoTemplate implementation for job persistence and worker
  * coordination.
  */
 @Repository
-public class SyncJobRepositoryImpl implements SyncJobRepository {
+public class JobRepositoryImpl implements JobRepository {
 
     private final MongoTemplate mongoTemplate;
 
     /** Creates the repository with the MongoDB template used for persistence. */
-    public SyncJobRepositoryImpl(MongoTemplate mongoTemplate) {
+    public JobRepositoryImpl(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
     }
 
     /** {@inheritDoc} */
     @Override
-    public void deleteByConfigIdAndJobTypeAndJobStatus(
-            ObjectId configId, SyncJobType jobType, SyncJobStatus jobStatus) {
-        Criteria criteria = Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId)
-                .and(SyncJobDocument.FIELD_JOB_TYPE).is(jobType)
-                .and(SyncJobDocument.FIELD_JOB_STATUS).is(jobStatus);
-        mongoTemplate.remove(Query.query(criteria), SyncJobDocument.class);
+    public void holdPendingByConfigId(ObjectId configId, Instant updatedAt) {
+        Query query = Query.query(Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId)
+                .and(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.PENDING));
+        Update update = new Update()
+                .set(SyncJobDocument.FIELD_JOB_STATUS, JobStatus.HELD)
+                .set(SyncJobDocument.FIELD_UPDATED_AT, updatedAt);
+        mongoTemplate.updateMulti(query, update, SyncJobDocument.class);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void deletePendingAndHeldScheduledByConfigId(ObjectId configId) {
+        Query query = Query.query(Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId)
+                .and(SyncJobDocument.FIELD_JOB_TYPE).is(JobType.SCHEDULED)
+                .and(SyncJobDocument.FIELD_JOB_STATUS).in(JobStatus.PENDING, JobStatus.HELD));
+        mongoTemplate.remove(query, SyncJobDocument.class);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void releaseHeldByConfigId(ObjectId configId, Instant updatedAt) {
+        Query query = Query.query(Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId)
+                .and(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.HELD));
+        Update update = new Update()
+                .set(SyncJobDocument.FIELD_JOB_STATUS, JobStatus.PENDING)
+                .set(SyncJobDocument.FIELD_UPDATED_AT, updatedAt);
+        mongoTemplate.updateMulti(query, update, SyncJobDocument.class);
     }
 
     /** {@inheritDoc} */
@@ -50,23 +72,23 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
 
     /** {@inheritDoc} */
     @Override
-    public SyncJobDocument save(SyncJobDocument job) {
+    public <T extends JobDocument> T save(T job) {
         return mongoTemplate.save(job);
     }
 
     /** {@inheritDoc} */
     @Override
-    public Optional<SyncJobDocument> claimNextDueJob(Instant now) {
+    public Optional<JobDocument> claimNextDueJob(Instant now) {
         Criteria scheduledNow = new Criteria().orOperator(
                 Criteria.where(ScheduledSyncJobDocument.MONGO_FIELD_SCHEDULED_FOR).is(null),
                 Criteria.where(ScheduledSyncJobDocument.MONGO_FIELD_SCHEDULED_FOR).lte(now));
         Query query = Query.query(new Criteria().andOperator(
-                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(SyncJobStatus.PENDING),
+                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.PENDING),
                 scheduledNow));
         query.with(Sort.by(Sort.Order.asc(SyncJobDocument.FIELD_CREATED_AT)));
 
         Update claim = new Update()
-                .set(SyncJobDocument.FIELD_JOB_STATUS, SyncJobStatus.RUNNING)
+                .set(SyncJobDocument.FIELD_JOB_STATUS, JobStatus.RUNNING)
                 .set(SyncJobDocument.FIELD_STARTED_AT, now)
                 .set(SyncJobDocument.FIELD_UPDATED_AT, now)
                 .inc(SyncJobDocument.FIELD_ATTEMPT_COUNT, 1);
@@ -75,7 +97,7 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
                 query,
                 claim,
                 FindAndModifyOptions.options().returnNew(true),
-                SyncJobDocument.class));
+                JobDocument.class));
     }
 
     /** {@inheritDoc} */
@@ -84,7 +106,7 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
         Query query = Query.query(new Criteria().andOperator(
                 Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId),
                 Criteria.where(SyncJobDocument.FIELD_SCOPE).is(SyncScope.PROJECT),
-                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(SyncJobStatus.SUCCESS),
+                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.SUCCESS),
                 Criteria.where(SyncJobDocument.FIELD_STARTED_AT).exists(true)));
         query.with(Sort.by(Sort.Order.desc(SyncJobDocument.FIELD_STARTED_AT))).limit(1);
         return Optional.ofNullable(mongoTemplate.findOne(query, SyncJobDocument.class))
@@ -93,9 +115,10 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
 
     /** {@inheritDoc} */
     @Override
-    public JobPage findJobs(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
+    public JobPage findJobs(ObjectId configId, JobStatus jobStatus, JobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize) {
         List<Criteria> filters = new ArrayList<>();
+        filters.add(Criteria.where(SyncJobDocument.FIELD_JOB_TYPE).in(JobType.MANUAL, JobType.SCHEDULED));
         if (configId != null)
             filters.add(Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId));
         if (jobStatus != null)
@@ -129,8 +152,8 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
     @Override
     public List<SyncJobDocument> findAllPendingScheduledJobs() {
         Query query = Query.query(new Criteria().andOperator(
-                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(SyncJobStatus.PENDING),
-                Criteria.where(SyncJobDocument.FIELD_JOB_TYPE).is(SyncJobType.SCHEDULED)));
+                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.PENDING),
+                Criteria.where(SyncJobDocument.FIELD_JOB_TYPE).is(JobType.SCHEDULED)));
         // The shared job-status/type index narrows this to pending scheduled jobs.
         // The service chooses the earliest scheduled time per config while iterating.
         return mongoTemplate.find(query, SyncJobDocument.class);
@@ -141,8 +164,8 @@ public class SyncJobRepositoryImpl implements SyncJobRepository {
     public List<SyncJobDocument> findPendingScheduledJobsByConfigId(ObjectId configId) {
         Query query = Query.query(new Criteria().andOperator(
                 Criteria.where(SyncJobDocument.FIELD_CONFIG_ID).is(configId),
-                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(SyncJobStatus.PENDING),
-                Criteria.where(SyncJobDocument.FIELD_JOB_TYPE).is(SyncJobType.SCHEDULED)));
+                Criteria.where(SyncJobDocument.FIELD_JOB_STATUS).is(JobStatus.PENDING),
+                Criteria.where(SyncJobDocument.FIELD_JOB_TYPE).is(JobType.SCHEDULED)));
         return mongoTemplate.find(query, SyncJobDocument.class);
     }
 }

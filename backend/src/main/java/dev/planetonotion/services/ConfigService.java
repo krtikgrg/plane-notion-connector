@@ -1,24 +1,34 @@
 package dev.planetonotion.services;
 
-import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
-import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationType;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
+import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
+import dev.planetonotion.integrations.PlaneClient;
+import dev.planetonotion.integrations.models.PlaneApiModels.Label;
+import dev.planetonotion.integrations.models.PlaneApiModels.State;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient.ProjectDestination;
-import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
-import dev.planetonotion.repositories.SyncConfigRepository;
-import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.models.documents.jobs.ConfigOperationJobDocument;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.repositories.JobRepository;
 import dev.planetonotion.repositories.MongoQueryOptions;
+import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import org.bson.types.ObjectId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,22 +36,29 @@ import org.springframework.stereotype.Service;
 @Service
 public class ConfigService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConfigService.class);
+
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final NotionClient notionClient;
+    private final NotionBlockClient notionBlockClient;
     private final NotionHierarchyService notionHierarchyService;
     private final ScheduleService scheduleService;
+    private final JobRepository jobRepository;
 
     public ConfigService(SyncConfigRepository configRepository, PlaneProjectRepository projectRepository,
-            PlaneService planeService, NotionClient notionClient, NotionHierarchyService notionHierarchyService,
-            ScheduleService scheduleService) {
+            PlaneClient planeClient, NotionClient notionClient, NotionBlockClient notionBlockClient,
+            NotionHierarchyService notionHierarchyService, ScheduleService scheduleService,
+            JobRepository jobRepository) {
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
-        this.planeService = planeService;
+        this.planeClient = planeClient;
         this.notionClient = notionClient;
+        this.notionBlockClient = notionBlockClient;
         this.notionHierarchyService = notionHierarchyService;
         this.scheduleService = scheduleService;
+        this.jobRepository = jobRepository;
     }
 
     public List<SyncConfigDocument> list() {
@@ -71,108 +88,139 @@ public class ConfigService {
             throw new ServiceException(HttpStatus.CONFLICT, "NOTION_DESTINATION_ALREADY_EXISTS",
                     "This Plane project already has Notion destination details but no sync config. Repair the destination before retrying.");
         }
-
-        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug())
-                .notionPageId();
-        ProjectDestination destination = notionClient.createProjectDestination(workspacePageId,
-                project.planeProjectName(),
-                names(planeService.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())),
-                names(planeService.listWorkItemLabels(project.planeWorkspaceSlug(), project.planeProjectId())));
         Instant now = Instant.now();
         ConfigStatus status = input.status() == null ? ConfigStatus.ACTIVE : input.status();
         ObjectId configId = new ObjectId();
-        try {
-            project = projectRepository.save(withNotionDestination(project, destination, now));
-        } catch (RuntimeException exception) {
-            try {
-                notionClient.archivePage(destination.pageId());
-            } catch (RuntimeException cleanupFailure) {
-                exception.addSuppressed(cleanupFailure);
-            }
-            throw exception;
-        }
-        SyncConfigDocument draft = new SyncConfigDocument(configId, status, project.id(), input.syncOptions(),
-                normalizeSchedule(input.schedule()), now, now);
-
+        SyncConfigDocument draft = new SyncConfigDocument(configId, status, ConfigOperationStatus.PROVISIONING, null,
+                project.id(), input.syncOptions(), normalizeSchedule(input.schedule()), now, now);
         SyncConfigDocument saved;
         try {
             saved = configRepository.save(draft);
         } catch (DuplicateKeyException exception) {
-            compensateCreate(configId, project, destination.pageId(), exception);
             throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS",
                     "This Plane project already has a sync config.");
-        } catch (RuntimeException exception) {
-            compensateCreate(configId, project, destination.pageId(), exception);
-            throw exception;
         }
         try {
-            scheduleService.reset(saved);
+            jobRepository.save(newOperationJob(ConfigOperationType.CREATE, saved, null));
         } catch (RuntimeException exception) {
-            compensateCreate(configId, project, destination.pageId(), exception);
-            throw exception;
-        }
-        notionHierarchyService.refreshSummaries();
-        return saved;
-    }
-
-    private void compensateCreate(ObjectId configId, PlaneProjectDocument project, String projectPageId,
-            RuntimeException createFailure) {
-        List<RuntimeException> cleanupFailures = new ArrayList<>();
-        try {
-            scheduleService.cancelPending(configId);
-        } catch (RuntimeException exception) {
-            cleanupFailures.add(exception);
-        }
-        try {
             configRepository.deleteById(configId);
-        } catch (RuntimeException exception) {
-            cleanupFailures.add(exception);
+            throw exception;
         }
-        try {
-            projectRepository.save(withoutNotionDestination(project, Instant.now()));
-        } catch (RuntimeException exception) {
-            cleanupFailures.add(exception);
-        }
-        try {
-            notionClient.archivePage(projectPageId);
-        } catch (RuntimeException exception) {
-            cleanupFailures.add(exception);
-        }
-        if (cleanupFailures.isEmpty())
-            return;
-
-        IntegrationException cleanupFailure = new IntegrationException("CONFIG_CREATE_CLEANUP_FAILED", 502,
-                "Configuration creation failed, and cleanup was incomplete. Check the config and Notion destination before retrying.");
-        cleanupFailure.addSuppressed(createFailure);
-        cleanupFailures.forEach(cleanupFailure::addSuppressed);
-        throw cleanupFailure;
+        return saved;
     }
 
     public SyncConfigDocument update(ObjectId configId, ConfigInput input) {
         validate(input, false);
         SyncConfigDocument old = findConfig(configId);
-        SyncConfigDocument updated = new SyncConfigDocument(
-                old.id(), input.status(), old.planeProjectDocumentId(), input.syncOptions(),
-                normalizeSchedule(input.schedule()),
-                old.createdAt(), Instant.now());
-        SyncConfigDocument saved = configRepository.save(updated);
-        try {
-            scheduleService.reset(saved);
-        } catch (RuntimeException updateFailure) {
-            try {
-                configRepository.save(old);
-                scheduleService.reset(old);
-            } catch (RuntimeException rollbackFailure) {
-                IntegrationException failure = new IntegrationException("CONFIG_UPDATE_ROLLBACK_FAILED", 502,
-                        "Configuration update failed, and its previous schedule could not be restored.");
-                failure.addSuppressed(updateFailure);
-                failure.addSuppressed(rollbackFailure);
-                throw failure;
-            }
-            throw updateFailure;
+        if (old.operationStatus() == ConfigOperationStatus.PROVISIONING
+                || old.operationStatus() == ConfigOperationStatus.UPDATING) {
+            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_OPERATION_IN_PROGRESS",
+                    "Wait for the current configuration operation to finish before editing it again.");
         }
-        notionHierarchyService.refreshSummaries();
-        return saved;
+        Instant now = Instant.now();
+        SyncConfigDocument queued = new SyncConfigDocument(old.id(), old.status(), ConfigOperationStatus.UPDATING,
+                null, old.planeProjectDocumentId(), old.syncOptions(), old.schedule(), old.createdAt(), now);
+        try {
+            configRepository.save(queued);
+            jobRepository.holdPendingByConfigId(configId, now);
+            jobRepository.save(newOperationJob(ConfigOperationType.UPDATE, queued, input));
+        } catch (RuntimeException exception) {
+            configRepository.save(old);
+            jobRepository.releaseHeldByConfigId(configId, Instant.now());
+            throw exception;
+        }
+        return queued;
+    }
+
+    public SyncConfigDocument processOperation(ConfigOperationJobDocument job) {
+        SyncConfigDocument config = findConfig(job.configId());
+        PlaneProjectDocument project = projectRepository.findById(config.planeProjectDocumentId())
+                .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND",
+                        "The Plane project was not found."));
+        project = ensureNotionDestination(project);
+
+        SyncConfigDocument ready = config;
+        if (job.operationType() == ConfigOperationType.UPDATE) {
+            ready = new SyncConfigDocument(config.id(), job.targetStatus(), ConfigOperationStatus.READY, null,
+                    config.planeProjectDocumentId(), job.targetSyncOptions(), normalizeSchedule(job.targetSchedule()),
+                    config.createdAt(), Instant.now());
+        } else {
+            ready = new SyncConfigDocument(config.id(), config.status(), ConfigOperationStatus.READY, null,
+                    config.planeProjectDocumentId(), config.syncOptions(), config.schedule(), config.createdAt(),
+                    Instant.now());
+        }
+        try {
+            scheduleService.reset(ready);
+            jobRepository.releaseHeldByConfigId(config.id(), Instant.now());
+            ready = configRepository.save(ready);
+        } catch (RuntimeException exception) {
+            if (job.operationType() == ConfigOperationType.UPDATE) {
+                scheduleService.reset(config);
+            } else {
+                scheduleService.cancelPending(config.id());
+            }
+            throw exception;
+        }
+        try {
+            notionHierarchyService.refreshSummaries();
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Could not refresh Notion hierarchy summary after config operation {}", job.id());
+        }
+        return ready;
+    }
+
+    public void failOperation(ConfigOperationJobDocument job, String errorCode, String errorMessage) {
+        SyncConfigDocument config = configRepository.findById(job.configId()).orElse(null);
+        if (config == null)
+            return;
+        SyncConfigDocument failed = new SyncConfigDocument(config.id(), config.status(), ConfigOperationStatus.FAILED,
+                errorMessage, config.planeProjectDocumentId(), config.syncOptions(), config.schedule(),
+                config.createdAt(), Instant.now());
+        configRepository.save(failed);
+        if (job.operationType() == ConfigOperationType.UPDATE) {
+            scheduleService.reset(failed);
+            jobRepository.releaseHeldByConfigId(config.id(), Instant.now());
+        }
+    }
+
+    private ConfigOperationJobDocument newOperationJob(ConfigOperationType type, SyncConfigDocument config,
+            ConfigInput target) {
+        Instant now = Instant.now();
+        return new ConfigOperationJobDocument(new ObjectId(), JobType.CONFIGURATION, JobStatus.PENDING, config.id(),
+                type,
+                target == null ? null : target.status(),
+                target == null ? null : target.syncOptions(),
+                target == null ? null : normalizeSchedule(target.schedule()),
+                null, null, 0, null, null, now, now);
+    }
+
+    private PlaneProjectDocument ensureNotionDestination(PlaneProjectDocument project) {
+        if (project.notionProjectPageId() != null && project.notionDatabaseId() != null
+                && project.notionDataSourceId() != null) {
+            return project;
+        }
+        if (hasAnyNotionDestination(project)) {
+            throw new IntegrationException("NOTION_DESTINATION_INCOMPLETE", 409,
+                    "The project's Notion destination is incomplete. Repair it before retrying setup.");
+        }
+        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug())
+                .notionPageId();
+        List<String> states = planeClient.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())
+                .stream().map(State::name).filter(name -> name != null && !name.isBlank()).distinct().toList();
+        List<String> labels = planeClient.listWorkItemLabels(project.planeWorkspaceSlug(), project.planeProjectId())
+                .stream().map(Label::name).filter(name -> name != null && !name.isBlank()).distinct().toList();
+        ProjectDestination destination = notionClient.createProjectDestination(workspacePageId,
+                project.planeProjectName(), states, labels);
+        try {
+            return projectRepository.save(withNotionDestination(project, destination, Instant.now()));
+        } catch (RuntimeException exception) {
+            try {
+                notionBlockClient.archivePage(destination.pageId());
+            } catch (RuntimeException cleanupFailure) {
+                exception.addSuppressed(cleanupFailure);
+            }
+            throw exception;
+        }
     }
 
     private boolean hasAnyNotionDestination(PlaneProjectDocument project) {
@@ -187,13 +235,6 @@ public class ConfigService {
                 project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(),
                 destination.pageId(),
                 destination.databaseId(), destination.dataSourceId(), project.createdAt(), updatedAt);
-    }
-
-    private PlaneProjectDocument withoutNotionDestination(PlaneProjectDocument project, Instant updatedAt) {
-        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(),
-                project.planeProjectName(),
-                project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(), null, null, null,
-                project.createdAt(), updatedAt);
     }
 
     private SyncConfigDocument findConfig(ObjectId configId) {
@@ -246,16 +287,6 @@ public class ConfigService {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "FEATURE_NOT_AVAILABLE",
                     "Page sync is not implemented in the first cut.");
         }
-    }
-
-    private List<String> names(List<JsonNode> values) {
-        List<String> names = new ArrayList<>();
-        values.forEach(value -> {
-            String name = value.path("name").asString("");
-            if (!name.isBlank())
-                names.add(name);
-        });
-        return names;
     }
 
     private List<java.time.DayOfWeek> normalizedDays(List<java.time.DayOfWeek> values) {

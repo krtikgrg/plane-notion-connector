@@ -6,41 +6,42 @@ public final class PlaneToNotionEnums {
     }
 
     public enum ConfigStatus {
-        ACTIVE,
-        DISABLED,
-        ARCHIVED
+        ACTIVE, DISABLED, ARCHIVED
+    }
+
+    public enum ConfigOperationStatus {
+        READY, PROVISIONING, UPDATING, FAILED
+    }
+
+    public enum ConfigOperationType {
+        CREATE, UPDATE
     }
 
     public enum ScheduleType {
-        INTERVAL,
-        CALENDAR
+        INTERVAL, CALENDAR
     }
 
     public enum IntervalUnit {
-        MINUTES,
-        HOURS
+        MINUTES, HOURS
     }
 
     public enum CalendarFrequency {
-        DAILY,
-        WEEKLY
+        DAILY, WEEKLY
     }
 
-    public enum SyncJobStatus {
-        PENDING,
-        RUNNING,
-        SUCCESS,
-        FAILED,
-        SKIPPED_OVERLAP
+    public enum JobStatus {
+        PENDING, HELD, RUNNING, SUCCESS, FAILED, SKIPPED_OVERLAP
     }
 
-    public enum SyncJobType {
-        MANUAL,
-        SCHEDULED
+    public enum JobType {
+        MANUAL, SCHEDULED, CONFIGURATION
     }
 
     public enum SyncScope {
-        PROJECT,
-        WORK_ITEM
+        PROJECT, WORK_ITEM
+    }
+
+    public enum IntegrationProvider {
+        PLANE, NOTION
     }
 }

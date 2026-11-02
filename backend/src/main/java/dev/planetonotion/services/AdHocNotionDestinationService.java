@@ -1,8 +1,9 @@
 package dev.planetonotion.services;
 
 import dev.planetonotion.common.IntegrationProperties;
-import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient.ProjectDestination;
+import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.repositories.AdHocNotionDestinationRepository;
 import java.time.Instant;
@@ -13,12 +14,14 @@ public class AdHocNotionDestinationService {
 
     private final AdHocNotionDestinationRepository destinationRepository;
     private final NotionClient notionClient;
+    private final NotionBlockClient notionBlockClient;
     private final IntegrationProperties properties;
 
     public AdHocNotionDestinationService(AdHocNotionDestinationRepository destinationRepository,
-            NotionClient notionClient, IntegrationProperties properties) {
+            NotionClient notionClient, NotionBlockClient notionBlockClient, IntegrationProperties properties) {
         this.destinationRepository = destinationRepository;
         this.notionClient = notionClient;
+        this.notionBlockClient = notionBlockClient;
         this.properties = properties;
     }
 
@@ -30,7 +33,8 @@ public class AdHocNotionDestinationService {
     private AdHocNotionDestinationDocument createAndStore() {
         ProjectDestination destination = legacyDestination();
         boolean createdByService = destination == null;
-        if (createdByService) destination = notionClient.createAdHocDestination();
+        if (createdByService)
+            destination = notionClient.createAdHocDestination();
 
         Instant now = Instant.now();
         AdHocNotionDestinationDocument document = new AdHocNotionDestinationDocument(
@@ -41,7 +45,7 @@ public class AdHocNotionDestinationService {
         } catch (RuntimeException exception) {
             if (createdByService) {
                 try {
-                    notionClient.archivePage(destination.pageId());
+                    notionBlockClient.archivePage(destination.pageId());
                 } catch (RuntimeException cleanupFailure) {
                     exception.addSuppressed(cleanupFailure);
                 }
@@ -55,9 +59,11 @@ public class AdHocNotionDestinationService {
         String databaseId = properties.legacyNotionAdHocDatabaseId();
         String dataSourceId = properties.legacyNotionAdHocDataSourceId();
         boolean anyConfigured = hasText(pageId) || hasText(databaseId) || hasText(dataSourceId);
-        if (!anyConfigured) return null;
+        if (!anyConfigured)
+            return null;
         if (!hasText(pageId) || !hasText(databaseId) || !hasText(dataSourceId)) {
-            throw new IllegalStateException("Legacy ad hoc Notion destination IDs are incomplete; provide all three IDs or remove them.");
+            throw new IllegalStateException(
+                    "Legacy ad hoc Notion destination IDs are incomplete; provide all three IDs or remove them.");
         }
         return new ProjectDestination(pageId, databaseId, dataSourceId);
     }

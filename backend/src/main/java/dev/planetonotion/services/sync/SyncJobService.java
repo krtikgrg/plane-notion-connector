@@ -1,22 +1,24 @@
 package dev.planetonotion.services.sync;
 
-import tools.jackson.databind.JsonNode;
-import dev.planetonotion.common.IntegrationProperties;
-import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.services.PlaneService;
-import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
+import dev.planetonotion.integrations.models.PlaneApiModels.Project;
+import dev.planetonotion.integrations.models.PlaneApiModels.WorkItem;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
-import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobResult;
-import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.repositories.JobRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
-import dev.planetonotion.repositories.SyncJobRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.integrations.PlaneClient;
 import java.net.URI;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -28,46 +30,47 @@ import org.springframework.stereotype.Service;
 @Service
 public class SyncJobService {
 
-    private final SyncJobRepository jobRepository;
+    private final JobRepository jobRepository;
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final IntegrationProperties integrationProperties;
 
-    public SyncJobService(SyncJobRepository jobRepository, SyncConfigRepository configRepository,
-            PlaneProjectRepository projectRepository, PlaneService planeService,
+    public SyncJobService(JobRepository jobRepository, SyncConfigRepository configRepository,
+            PlaneProjectRepository projectRepository, PlaneClient planeClient,
             IntegrationProperties integrationProperties) {
         this.jobRepository = jobRepository;
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
-        this.planeService = planeService;
+        this.planeClient = planeClient;
         this.integrationProperties = integrationProperties;
     }
 
     public SyncJobDocument enqueueProject(ObjectId configId, boolean forceArchivedConfig) {
         SyncConfigDocument config = config(configId);
         validateArchivedConfig(config, forceArchivedConfig);
+        validateConfigQueueable(config);
         return saveJob(config, config.planeProjectDocumentId(), SyncScope.PROJECT,
                 null, forceArchivedConfig);
     }
 
     public SyncJobDocument enqueueTask(String taskUrl, ObjectId requestedConfigId, boolean forceArchivedConfig) {
         TaskUrl taskUrlParts = parseTaskUrl(taskUrl);
-        JsonNode item = taskUrlParts.identifier() != null
-                ? planeService.getWorkItemByIdentifier(taskUrlParts.workspaceSlug(), taskUrlParts.identifier())
-                : planeService.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(),
+        WorkItem item = taskUrlParts.identifier() != null
+                ? planeClient.getWorkItemByIdentifier(taskUrlParts.workspaceSlug(), taskUrlParts.identifier())
+                : planeClient.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(),
                         taskUrlParts.workItemId());
-        if (item.path("is_draft").asBoolean(false)) {
+        if (Boolean.TRUE.equals(item.isDraft())) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "DRAFT_WORK_ITEM",
                     "A draft work item cannot be synced.");
         }
-        if (!item.path("archived_at").isMissingNode() && !item.path("archived_at").isNull()) {
+        if (item.archivedAt() != null) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "ARCHIVED_WORK_ITEM",
                     "An archived work item cannot be synced.");
         }
 
-        String projectId = item.path("project_id").asString(taskUrlParts.projectId());
-        String workItemId = item.path("id").asString("");
+        String projectId = item.projectId() == null ? taskUrlParts.projectId() : item.projectId();
+        String workItemId = item.id() == null ? "" : item.id();
         if (projectId.isBlank() || workItemId.isBlank()) {
             throw new ServiceException(HttpStatus.BAD_GATEWAY, "PLANE_RESPONSE_INVALID",
                     "Plane did not identify this work item's project and ID.");
@@ -93,11 +96,12 @@ public class SyncJobService {
                     new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
         }
         validateArchivedConfig(config, forceArchivedConfig);
+        validateConfigQueueable(config);
         return saveJob(config, project.id(), SyncScope.WORK_ITEM,
                 new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
     }
 
-    public SyncJobRepository.JobPage list(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
+    public JobRepository.JobPage list(ObjectId configId, JobStatus jobStatus, JobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize) {
         return jobRepository.findJobs(configId, jobStatus, jobType, createdFrom, createdTo, beforeId, pageSize);
     }
@@ -122,13 +126,12 @@ public class SyncJobService {
 
     private PlaneProjectDocument findOrCacheProject(String workspaceSlug, String projectId) {
         return projectRepository.findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, projectId).orElseGet(() -> {
-            JsonNode source = planeService.getProject(workspaceSlug, projectId);
+            Project source = planeClient.getProject(workspaceSlug, projectId);
             Instant now = Instant.now();
-            JsonNode archivedAt = source.path("archived_at");
-            boolean isArchived = !archivedAt.isMissingNode() ? !archivedAt.isNull()
-                    : source.path("is_archived").asBoolean(false);
+            boolean isArchived = source.archivedAt() != null || Boolean.TRUE.equals(source.isArchived());
             return projectRepository.save(new PlaneProjectDocument(null, workspaceSlug, projectId,
-                    source.path("name").asString("Unnamed project"), source.path("identifier").asString(""),
+                    source.name() == null ? "Unnamed project" : source.name(),
+                    source.identifier() == null ? "" : source.identifier(),
                     isArchived, true, null, null, null, now, now));
         });
     }
@@ -146,10 +149,27 @@ public class SyncJobService {
         }
     }
 
+    private void validateConfigQueueable(SyncConfigDocument config) {
+        if (config.operationStatus() == ConfigOperationStatus.PROVISIONING) {
+            throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_PROVISIONING",
+                    "Wait for the Notion destination to finish provisioning before queueing a sync.");
+        }
+        PlaneProjectDocument project = projectRepository.findById(config.planeProjectDocumentId()).orElse(null);
+        if (project == null || project.notionProjectPageId() == null || project.notionDatabaseId() == null
+                || project.notionDataSourceId() == null) {
+            throw new ServiceException(HttpStatus.CONFLICT, "SYNC_DESTINATION_NOT_READY",
+                    "The Notion destination is not ready. Retry after configuration setup finishes.");
+        }
+    }
+
     private SyncJobDocument saveJob(SyncConfigDocument config, ObjectId projectRef, SyncScope scope,
             ManualSyncJobDocument.PlaneWorkItemReference planeWorkItem, boolean forceArchived) {
         Instant now = Instant.now();
-        return jobRepository.save(new ManualSyncJobDocument(null, SyncJobType.MANUAL, scope, SyncJobStatus.PENDING,
+        JobStatus initialStatus = config != null
+                && config.operationStatus() == ConfigOperationStatus.UPDATING
+                        ? JobStatus.HELD
+                        : JobStatus.PENDING;
+        return jobRepository.save(new ManualSyncJobDocument(new ObjectId(), JobType.MANUAL, scope, initialStatus,
                 config == null ? null : config.id(), projectRef, planeWorkItem, forceArchived,
                 null, null, 0, SyncJobResult.empty(), null, null, now, now));
     }

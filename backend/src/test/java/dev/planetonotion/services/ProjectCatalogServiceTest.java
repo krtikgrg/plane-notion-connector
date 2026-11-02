@@ -8,37 +8,37 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import dev.planetonotion.TestData;
+import dev.planetonotion.integrations.models.PlaneApiModels.Project;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.MongoQueryOptions.Filter;
 import dev.planetonotion.repositories.MongoQueryOptions.Sort;
+import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.TestData;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import org.bson.types.ObjectId;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import tools.jackson.databind.JsonNode;
+import org.mockito.Mock;
 
 @ExtendWith(MockitoExtension.class)
 class ProjectCatalogServiceTest {
 
     @Mock
-    private PlaneService planeService;
+    private PlaneClient planeClient;
     @Mock
     private PlaneProjectRepository projectRepository;
 
     @Test
     void list_requestsAvailableNonArchivedProjectsOrderedByName() {
-        ProjectCatalogService service = new ProjectCatalogService(planeService, projectRepository,
+        ProjectCatalogService service = new ProjectCatalogService(planeClient, projectRepository,
                 TestData.integrationProperties());
         when(projectRepository.findByPlaneWorkspaceSlug(eq("demo-workspace"), any()))
                 .thenReturn(List.of());
@@ -62,14 +62,14 @@ class ProjectCatalogServiceTest {
         when(projectRepository.findByPlaneWorkspaceSlug("demo-workspace", MongoQueryOptions.empty()))
                 .thenReturn(List.of(stale)).thenAnswer(invocation -> saved.get());
         doAnswer(invocation -> {
-            Consumer<List<JsonNode>> pageConsumer = invocation.getArgument(1);
+            Consumer<List<Project>> pageConsumer = invocation.getArgument(1);
             pageConsumer.accept(List.of(
-                    TestData.json(
+                    TestData.planeProject(
                             "{\"id\":\"fresh-project\",\"name\":\"Fresh\",\"identifier\":\"NEW\",\"archived_at\":null}"),
-                    TestData.json(
+                    TestData.planeProject(
                             "{\"id\":\"archived-project\",\"name\":\"Archived\",\"identifier\":\"OLD\",\"archived_at\":\"2026-10-30T10:00:00Z\"}")));
             return null;
-        }).when(planeService).forEachProjectPage(eq("demo-workspace"), any());
+        }).when(planeClient).forEachProjectPage(eq("demo-workspace"), any());
         doAnswer(invocation -> {
             List<PlaneProjectDocument> batch = invocation.getArgument(0);
             Map<String, PlaneProjectDocument> allSaved = new LinkedHashMap<>();
@@ -78,7 +78,7 @@ class ProjectCatalogServiceTest {
             saved.set(new ArrayList<>(allSaved.values()));
             return null;
         }).when(projectRepository).bulkUpsert(anyList());
-        ProjectCatalogService service = new ProjectCatalogService(planeService, projectRepository,
+        ProjectCatalogService service = new ProjectCatalogService(planeClient, projectRepository,
                 TestData.integrationProperties());
 
         List<PlaneProjectDocument> refreshed = service.refresh("demo-workspace");

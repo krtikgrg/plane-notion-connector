@@ -1,11 +1,13 @@
 package dev.planetonotion.services;
 
-import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.integrations.PlaneClient;
+import dev.planetonotion.integrations.models.PlaneApiModels.Project;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.MongoQueryOptions.Filter;
 import dev.planetonotion.repositories.MongoQueryOptions.Sort;
+import dev.planetonotion.repositories.MongoQueryOptions;
 import dev.planetonotion.repositories.PlaneProjectRepository;
 import java.net.URI;
 import java.time.Instant;
@@ -18,20 +20,19 @@ import java.util.Set;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.JsonNode;
 
 @Service
 public class ProjectCatalogService {
 
     private static final int MONGO_WRITE_BATCH_SIZE = 1000;
 
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final PlaneProjectRepository projectRepository;
     private final IntegrationProperties integrationProperties;
 
-    public ProjectCatalogService(PlaneService planeService,
+    public ProjectCatalogService(PlaneClient planeClient,
             PlaneProjectRepository projectRepository, IntegrationProperties integrationProperties) {
-        this.planeService = planeService;
+        this.planeClient = planeClient;
         this.projectRepository = projectRepository;
         this.integrationProperties = integrationProperties;
     }
@@ -55,9 +56,9 @@ public class ProjectCatalogService {
 
         Set<String> seen = new HashSet<>();
         List<PlaneProjectDocument> batch = new ArrayList<>(MONGO_WRITE_BATCH_SIZE);
-        planeService.forEachProjectPage(validatedWorkspaceSlug, page -> {
-            for (JsonNode source : page) {
-                String projectId = source.path("id").asString("");
+        planeClient.forEachProjectPage(validatedWorkspaceSlug, page -> {
+            for (Project source : page) {
+                String projectId = source.id();
                 if (projectId.isBlank())
                     continue;
                 seen.add(projectId);
@@ -100,9 +101,10 @@ public class ProjectCatalogService {
         }
         String workspaceSlug = parts[1];
         String projectId = parts[3];
-        JsonNode source = planeService.getProject(workspaceSlug, projectId);
+        Project source = planeClient.getProject(workspaceSlug, projectId);
         PlaneProjectDocument existing = projectRepository
-                .findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, source.path("id").asString(projectId))
+                .findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug,
+                        source.id() == null ? projectId : source.id())
                 .orElse(null);
         return projectRepository.save(fromPlane(source, workspaceSlug, existing, Instant.now(), true, projectId));
     }
@@ -115,7 +117,7 @@ public class ProjectCatalogService {
 
     public PlaneProjectDocument refreshProject(ObjectId projectRef) {
         PlaneProjectDocument existing = findById(projectRef);
-        JsonNode source = planeService.getProject(existing.planeWorkspaceSlug(), existing.planeProjectId());
+        Project source = planeClient.getProject(existing.planeWorkspaceSlug(), existing.planeProjectId());
         return projectRepository.save(fromPlane(source, existing.planeWorkspaceSlug(), existing, Instant.now(), true,
                 existing.planeProjectId()));
     }
@@ -124,12 +126,12 @@ public class ProjectCatalogService {
         return projectRepository.findAllById(projectRefs);
     }
 
-    private PlaneProjectDocument fromPlane(JsonNode source, String workspace, PlaneProjectDocument old,
+    private PlaneProjectDocument fromPlane(Project source, String workspace, PlaneProjectDocument old,
             Instant now, boolean available, String fallbackProjectId) {
         return new PlaneProjectDocument(
-                old == null ? null : old.id(), workspace, source.path("id").asString(fallbackProjectId),
-                source.path("name").asString(old == null ? "Unnamed project" : old.planeProjectName()),
-                source.path("identifier").asString(old == null ? "" : old.planeProjectIdentifier()),
+                old == null ? null : old.id(), workspace, source.id() == null ? fallbackProjectId : source.id(),
+                source.name() == null ? (old == null ? "Unnamed project" : old.planeProjectName()) : source.name(),
+                source.identifier() == null ? (old == null ? "" : old.planeProjectIdentifier()) : source.identifier(),
                 isArchived(source, old), available,
                 old == null ? null : old.notionProjectPageId(),
                 old == null ? null : old.notionDatabaseId(),
@@ -137,11 +139,10 @@ public class ProjectCatalogService {
                 old == null ? now : old.createdAt(), now);
     }
 
-    private boolean isArchived(JsonNode source, PlaneProjectDocument old) {
-        JsonNode archivedAt = source.path("archived_at");
-        if (!archivedAt.isMissingNode())
-            return !archivedAt.isNull();
-        return source.path("is_archived").asBoolean(old != null && old.isArchivedInPlane());
+    private boolean isArchived(Project source, PlaneProjectDocument old) {
+        if (source.archivedAt() != null)
+            return true;
+        return source.isArchived() == null ? old != null && old.isArchivedInPlane() : source.isArchived();
     }
 
     private void flush(List<PlaneProjectDocument> batch) {

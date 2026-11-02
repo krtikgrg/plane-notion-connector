@@ -1,31 +1,31 @@
 package dev.planetonotion.controllers;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
-import dev.planetonotion.common.MongoIdParser;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.services.PlaneService;
-import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.common.MongoIdParser;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
+import dev.planetonotion.models.ApiDtos.ConfigResponse;
+import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
+import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
+import dev.planetonotion.models.ApiDtos.JobResponse;
+import dev.planetonotion.models.ApiDtos.ManualProjectSyncRequest;
+import dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse;
+import dev.planetonotion.models.ApiDtos.ProjectResponse;
+import dev.planetonotion.models.ApiDtos.UpsertConfigRequest;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
-import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
-import dev.planetonotion.models.ApiDtos.ConfigResponse;
-import dev.planetonotion.models.ApiDtos.UpsertConfigRequest;
-import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
-import dev.planetonotion.models.ApiDtos.JobResponse;
-import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
-import dev.planetonotion.models.ApiDtos.ManualProjectSyncRequest;
-import dev.planetonotion.models.ApiDtos.ProjectResponse;
-import dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.services.ConfigService;
+import dev.planetonotion.integrations.PlaneClient;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;
+import java.util.function.Function;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
@@ -45,14 +45,14 @@ public class ConfigController {
 
     private final ConfigService configService;
     private final ProjectCatalogService projectCatalogService;
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final SyncJobService syncJobService;
 
     public ConfigController(ConfigService configService, ProjectCatalogService projectCatalogService,
-            PlaneService planeService, SyncJobService syncJobService) {
+            PlaneClient planeClient, SyncJobService syncJobService) {
         this.configService = configService;
         this.projectCatalogService = projectCatalogService;
-        this.planeService = planeService;
+        this.planeClient = planeClient;
         this.syncJobService = syncJobService;
     }
 
@@ -67,7 +67,7 @@ public class ConfigController {
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public ConfigResponse create(@Valid @RequestBody UpsertConfigRequest request) {
         return toResponse(configService.create(new ConfigService.ConfigInput(
                 MongoIdParser.required(request.planeProjectDocumentId(), "plane_project_document_id"), request.status(),
@@ -80,6 +80,7 @@ public class ConfigController {
     }
 
     @PatchMapping("/{config_id}")
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public ConfigResponse update(@PathVariable("config_id") String configId,
             @Valid @RequestBody UpsertConfigRequest request) {
         return toResponse(configService.update(MongoIdParser.required(configId, "config_id"),
@@ -96,8 +97,8 @@ public class ConfigController {
 
     @GetMapping("/{config_id}/sync-jobs")
     public JobHistoryResponse listConfigRuns(@PathVariable("config_id") String configId,
-            @RequestParam(required = false, name = "job_status") SyncJobStatus jobStatus,
-            @RequestParam(required = false, name = "job_type") SyncJobType jobType,
+            @RequestParam(required = false, name = "job_status") JobStatus jobStatus,
+            @RequestParam(required = false, name = "job_type") JobType jobType,
             @RequestParam(required = false, name = "created_from") Instant createdFrom,
             @RequestParam(required = false, name = "created_to") Instant createdTo,
             @RequestParam(required = false, name = "before_id") String beforeId,
@@ -118,9 +119,10 @@ public class ConfigController {
             project = projectCatalogService.findById(config.planeProjectDocumentId());
         ProjectResponse projectResponse = new ProjectResponse(project.id().toHexString(), project.planeWorkspaceSlug(),
                 project.planeProjectId(), project.planeProjectName(), project.planeProjectIdentifier(),
-                planeService.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
+                planeClient.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
                 project.isArchivedInPlane(), project.isAvailable());
-        return new ConfigResponse(config.id().toHexString(), config.status(), projectResponse,
+        return new ConfigResponse(config.id().toHexString(), config.status(), config.operationStatus(),
+                config.operationError(), projectResponse,
                 project.notionProjectPageId(), project.notionDatabaseId(), project.notionDataSourceId(),
                 config.syncOptions(), config.schedule(), config.createdAt(), config.updatedAt());
     }

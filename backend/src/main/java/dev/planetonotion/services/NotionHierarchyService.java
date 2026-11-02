@@ -1,24 +1,25 @@
 package dev.planetonotion.services;
 
+import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
-import dev.planetonotion.models.documents.configs.SyncConfigDocument;
-import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.MongoQueryOptions;
-import dev.planetonotion.repositories.SyncMappingRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
 import dev.planetonotion.repositories.PlaneWorkspaceRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.repositories.SyncMappingRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.function.Function;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
@@ -36,17 +37,19 @@ public class NotionHierarchyService {
     private final SyncConfigRepository configRepository;
     private final SyncMappingRepository mappingRepository;
     private final NotionClient notionClient;
+    private final NotionBlockClient notionBlockClient;
     private final IntegrationProperties integrationProperties;
 
     public NotionHierarchyService(PlaneWorkspaceRepository workspaceRepository,
             PlaneProjectRepository projectRepository,
             SyncConfigRepository configRepository, SyncMappingRepository mappingRepository, NotionClient notionClient,
-            IntegrationProperties integrationProperties) {
+            NotionBlockClient notionBlockClient, IntegrationProperties integrationProperties) {
         this.workspaceRepository = workspaceRepository;
         this.projectRepository = projectRepository;
         this.configRepository = configRepository;
         this.mappingRepository = mappingRepository;
         this.notionClient = notionClient;
+        this.notionBlockClient = notionBlockClient;
         this.integrationProperties = integrationProperties;
     }
 
@@ -60,10 +63,10 @@ public class NotionHierarchyService {
         try {
             return workspaceRepository.save(new PlaneWorkspaceDocument(null, workspaceSlug, pageId, now, now));
         } catch (DuplicateKeyException exception) {
-            notionClient.archivePage(pageId);
+            notionBlockClient.archivePage(pageId);
             return workspaceRepository.findByPlaneWorkspaceSlug(workspaceSlug).orElseThrow(() -> exception);
         } catch (RuntimeException exception) {
-            notionClient.archivePage(pageId);
+            notionBlockClient.archivePage(pageId);
             throw exception;
         }
     }
@@ -122,7 +125,7 @@ public class NotionHierarchyService {
                     project.project().planeProjectName(), project.project().planeProjectIdentifier(),
                     project.config().status().name(),
                     Long.toString(project.workItemCount()))).toList();
-            notionClient.upsertPageTableSummary(workspace.notionPageId(), "Project overview",
+            notionBlockClient.upsertPageTableSummary(workspace.notionPageId(), "Project overview",
                     List.of("Projects synced from Plane"), "Workspace sync summary:", summary,
                     List.of("Project", "Key", "Sync status", "Work items"), projectRows);
             workspaceSummaries.add(new WorkspaceSummary(entry.getKey(), projects.size(), counts, workItemCount));
@@ -138,7 +141,7 @@ public class NotionHierarchyService {
                 .map(summary -> List.of(summary.workspaceSlug(), Long.toString(summary.projectCount()),
                         statusBreakdown(summary.counts()), Long.toString(summary.workItemCount())))
                 .toList();
-        notionClient.upsertPageTableSummary(integrationProperties.notionParentPageId(), "Workspace overview",
+        notionBlockClient.upsertPageTableSummary(integrationProperties.notionParentPageId(), "Workspace overview",
                 List.of("Plane workspace rollup"), "Plane sync summary:", parentSummary,
                 List.of("Workspace", "Projects", "Project status", "Synced work items"), workspaceRows);
     }

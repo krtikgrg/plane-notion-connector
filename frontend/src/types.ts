@@ -1,5 +1,5 @@
 export type ConfigStatus = 'ACTIVE' | 'DISABLED' | 'ARCHIVED';
-export type JobStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED_OVERLAP';
+export type JobStatus = 'PENDING' | 'HELD' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED_OVERLAP';
 export type JobType = 'MANUAL' | 'SCHEDULED';
 export type SyncScope = 'PROJECT' | 'WORK_ITEM';
 export type SyncOptions = { work_items: boolean; pages: boolean };
@@ -18,10 +18,12 @@ export interface Project {
 export interface SyncConfig {
   config_id: string;
   status: ConfigStatus;
+  operation_status: 'READY' | 'PROVISIONING' | 'UPDATING' | 'FAILED';
+  operation_error: string | null;
   project: Project;
-  notion_project_page_id: string;
-  notion_database_id: string;
-  notion_data_source_id: string;
+  notion_project_page_id: string | null;
+  notion_database_id: string | null;
+  notion_data_source_id: string | null;
   sync_options: SyncOptions;
   schedule: SyncSchedule;
   created_at: string;

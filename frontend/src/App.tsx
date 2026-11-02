@@ -136,6 +136,11 @@ function App() {
   }, [runCursor, runStatus, runTrigger]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    if (!configs.some((config) => config.operation_status === 'PROVISIONING' || config.operation_status === 'UPDATING')) return;
+    const timer = window.setTimeout(() => void loadData(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [configs, loadData]);
   useEffect(() => { if (page === 'runs') void loadRuns(); }, [page, loadRuns]);
   useEffect(() => {
     if (page !== 'detail' || !selected) return;
@@ -256,7 +261,7 @@ function App() {
         </div>
       </main>
 
-      {editor && <ConfigEditor mode={editor.mode} config={editor.config} onClose={() => setEditor(null)} onSaved={() => void afterMutation(editor.mode === 'create' ? 'Configuration created.' : 'Configuration updated.')} notify={showNotice} />}
+      {editor && <ConfigEditor mode={editor.mode} config={editor.config} onClose={() => setEditor(null)} onSaved={() => void afterMutation(editor.mode === 'create' ? 'Configuration queued. Notion setup is running in the background.' : 'Configuration update queued.')} notify={showNotice} />}
       {manualOpen && <ManualSyncDialog onClose={() => setManualOpen(false)} onQueued={() => void afterMutation('Manual sync queued.')} notify={showNotice} />}
       {projectSync && <ManualProjectSyncDialog config={projectSync} onClose={() => setProjectSync(null)} onQueued={() => void afterMutation('Project sync queued.')} notify={showNotice} />}
       {tooltipTarget?.isConnected && tooltipTarget.dataset.tooltip && <FloatingTooltip target={tooltipTarget} text={tooltipTarget.dataset.tooltip} />}
@@ -382,10 +387,10 @@ function Configurations({ configs, nextRuns, loading, onCreate, onEdit, onOpen, 
   return <>
     <section className="page-heading heading-row"><div><div className="eyebrow">PROJECT SYNC SETTINGS <span className="eyebrow-line" /></div><h1>Configurations<span className="heading-period">.</span></h1><p className="subtitle">Choose a source project in Plane (project tracker), copy its work items to a Notion database, and set a schedule.</p></div><button className="button button-primary" data-tooltip="Create a new project sync configuration." onClick={onCreate}><span>＋</span> New configuration</button></section>
     <div className="panel table-panel"><div className="table-toolbar"><div className="toolbar-caption"><span className="toolbar-square">▤</span><b>Project connections</b><span className="count-badge">{configs.length}</span></div><span className="muted-inline">Each source project has its own Notion database</span></div>
-      {configs.length === 0 && !loading ? <EmptyState title="Your config list is empty" text="Choose a source workspace and project. The service creates a Notion database for it and applies the schedule you choose." action="Create configuration" onClick={onCreate} /> : <div className="table-scroll"><table><thead><tr><th scope="col">SOURCE PROJECT</th><th scope="col">STATUS</th><th scope="col">SCHEDULE</th><th scope="col">NEXT RUN · LOCAL TIME</th><th scope="col">CONFIG EDITED</th><th scope="col">ACTIONS</th></tr></thead><tbody>{configs.map((config) => <tr key={config.config_id}><td><button className="table-project" data-tooltip={`Open sync details for ${config.project.name}.`} onClick={() => onOpen(config)}><ProjectMark name={config.project.name} small /><span><b>{config.project.name}</b><ProjectSourceMeta project={config.project} /></span></button></td><td><StatusPill status={config.status} /></td><td title={config.schedule.type === 'CALENDAR' ? 'Calendar schedules use UTC.' : undefined}><span className="schedule-label"><span>◷</span>{scheduleLabel(config)}</span></td><td title={nextRuns.get(config.config_id) ? formatExactDate(nextRuns.get(config.config_id)!) : undefined}>{nextRuns.get(config.config_id) ? formatDate(nextRuns.get(config.config_id)!) : <span className="muted">No run scheduled</span>}</td><td title={formatExactDate(config.updated_at)}>{formatRelative(config.updated_at)}</td><td><div className="row-actions"><button aria-label={`Sync ${config.project.name} now`} data-tooltip="Start a full on-demand sync for this project." onClick={() => onSync(config)}>↻ <span>Sync now</span></button><button aria-label={`Edit ${config.project.name} configuration`} data-tooltip="Change this project's sync options or schedule." onClick={() => onEdit(config)}>··· <span>Edit</span></button></div></td></tr>)}</tbody></table></div>}
+      {configs.length === 0 && !loading ? <EmptyState title="Your config list is empty" text="Choose a source workspace and project. The service creates a Notion database for it and applies the schedule you choose." action="Create configuration" onClick={onCreate} /> : <div className="table-scroll"><table><thead><tr><th scope="col">SOURCE PROJECT</th><th scope="col">STATUS</th><th scope="col">SCHEDULE</th><th scope="col">NEXT RUN · LOCAL TIME</th><th scope="col">CONFIG EDITED</th><th scope="col">ACTIONS</th></tr></thead><tbody>{configs.map((config) => <tr key={config.config_id}><td><button className="table-project" data-tooltip={`Open sync details for ${config.project.name}.`} onClick={() => onOpen(config)}><ProjectMark name={config.project.name} small /><span><b>{config.project.name}</b><ProjectSourceMeta project={config.project} />{config.operation_error && <small className="operation-error">{config.operation_error}</small>}</span></button></td><td><StatusPill status={config.status} /><ConfigOperationPill status={config.operation_status} error={config.operation_error} /></td><td title={config.schedule.type === 'CALENDAR' ? 'Calendar schedules use UTC.' : undefined}><span className="schedule-label"><span>◷</span>{scheduleLabel(config)}</span></td><td title={nextRuns.get(config.config_id) ? formatExactDate(nextRuns.get(config.config_id)!) : undefined}>{nextRuns.get(config.config_id) ? formatDate(nextRuns.get(config.config_id)!) : <span className="muted">No run scheduled</span>}</td><td title={formatExactDate(config.updated_at)}>{formatRelative(config.updated_at)}</td><td><div className="row-actions"><button aria-label={`Sync ${config.project.name} now`} data-tooltip={config.operation_status === 'PROVISIONING' ? 'Wait for destination setup to finish before syncing.' : 'Start a full on-demand sync for this project.'} disabled={config.operation_status === 'PROVISIONING' || !config.notion_data_source_id} onClick={() => onSync(config)}>↻ <span>Sync now</span></button><button aria-label={`Edit ${config.project.name} configuration`} data-tooltip="Change this project's sync options or schedule." disabled={config.operation_status === 'PROVISIONING' || config.operation_status === 'UPDATING'} onClick={() => onEdit(config)}>··· <span>Edit</span></button></div></td></tr>)}</tbody></table></div>}
       {loading && <div className="loading-line">Loading configurations…</div>}
     </div>
-    <div className="info-banner"><span className="info-symbol">i</span><span>Each configuration copies active, non-draft work items from one source project into its own Notion database. <b>Disabled</b> keeps the settings but pauses scheduled syncs; <b>Archived</b> marks a configuration as no longer in use. Select <b>Sync now</b> to start a full sync manually.</span></div>
+    <div className="info-banner"><span className="info-symbol">i</span><span>Each configuration copies active, non-draft work items from one source project into its own Notion database. New and edited configurations are applied in the background. <b>Disabled</b> pauses scheduled syncs; <b>Archived</b> marks a configuration as no longer in use.</span></div>
   </>;
 }
 
@@ -396,7 +401,7 @@ function RunHistory({ jobs, configs, status, trigger, onStatus, onTrigger, loadi
 }) {
   return <>
     <section className="page-heading heading-row"><div><div className="eyebrow">RUN REPORTING <span className="eyebrow-line" /></div><h1>Run history<span className="heading-period">.</span></h1><p className="subtitle">See which project ran, when it ran in your local time, and how many work items changed.</p></div><span className="history-count"><b>{jobs.length}</b> shown</span></section>
-    <div className="panel table-panel"><div className="table-toolbar"><div className="toolbar-caption"><span className="toolbar-square purple">◷</span><b>All sync runs</b><span className="count-badge">{jobs.length}</span></div><div className="filter-controls"><label><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => onStatus(event.target.value)}><option value="">All statuses</option>{['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED_OVERLAP'].map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label><label><span className="sr-only">Filter by trigger</span><select value={trigger} onChange={(event) => onTrigger(event.target.value)}><option value="">All triggers</option><option value="SCHEDULED">Scheduled</option><option value="MANUAL">Manual</option></select></label></div></div><JobsTable jobs={jobs} configs={configs} loading={loading} />{nextBeforeId && <div className="load-more"><button className="button button-secondary" data-tooltip="Load the next page of sync runs." disabled={loading} onClick={onLoadMore}>{loading ? 'Loading…' : 'Load more runs'}</button></div>}</div>
+    <div className="panel table-panel"><div className="table-toolbar"><div className="toolbar-caption"><span className="toolbar-square purple">◷</span><b>All sync runs</b><span className="count-badge">{jobs.length}</span></div><div className="filter-controls"><label><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => onStatus(event.target.value)}><option value="">All statuses</option>{['PENDING', 'HELD', 'RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED_OVERLAP'].map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label><label><span className="sr-only">Filter by trigger</span><select value={trigger} onChange={(event) => onTrigger(event.target.value)}><option value="">All triggers</option><option value="SCHEDULED">Scheduled</option><option value="MANUAL">Manual</option></select></label></div></div><JobsTable jobs={jobs} configs={configs} loading={loading} />{nextBeforeId && <div className="load-more"><button className="button button-secondary" data-tooltip="Load the next page of sync runs." disabled={loading} onClick={onLoadMore}>{loading ? 'Loading…' : 'Load more runs'}</button></div>}</div>
   </>;
 }
 
@@ -421,24 +426,24 @@ function ConfigDetail({ config, jobs, nextRun, loading, nextBeforeId, onLoadMore
 
   return <>
     <button className="back-link" data-tooltip="Return to the configuration list." onClick={onBack}>← All configurations</button>
-    <section className="page-heading detail-heading"><div className="detail-title"><ProjectMark name={config.project.name} /><div><div className="eyebrow">SOURCE PROJECT <span className="eyebrow-line" /></div><h1>{config.project.name}<span className="heading-period">.</span></h1><ProjectSourceMeta project={config.project} /><a href={config.project.project_url} target="_blank" rel="noreferrer">Open source project ↗</a></div></div><div className="heading-buttons"><button className="button button-secondary" data-tooltip="Change this project's sync settings." onClick={onEdit}>Edit configuration</button><button className="button button-primary" data-tooltip="Start a full on-demand sync for this project." onClick={onSync}>↻ Sync now</button></div></section>
-    <section className="detail-stats"><div className="panel detail-stat"><small>CONFIGURATION STATUS</small><StatusPill status={config.status} /></div><div className="panel detail-stat"><small>SCHEDULE</small><b>◷ {scheduleLabel(config)}</b></div><div className="panel detail-stat"><small>NEXT RUN · LOCAL TIME</small><b>{nextRunLabel}</b></div><div className="panel detail-stat"><small>SYNC OPTIONS</small><b>Work items</b></div></section>
+    <section className="page-heading detail-heading"><div className="detail-title"><ProjectMark name={config.project.name} /><div><div className="eyebrow">SOURCE PROJECT <span className="eyebrow-line" /></div><h1>{config.project.name}<span className="heading-period">.</span></h1><ProjectSourceMeta project={config.project} /><ConfigOperationPill status={config.operation_status} error={config.operation_error} />{config.operation_error && <p className="operation-error">{config.operation_error}</p>}<a href={config.project.project_url} target="_blank" rel="noreferrer">Open source project ↗</a></div></div><div className="heading-buttons"><button className="button button-secondary" data-tooltip="Change this project's sync settings." disabled={config.operation_status === 'PROVISIONING' || config.operation_status === 'UPDATING'} onClick={onEdit}>Edit configuration</button><button className="button button-primary" data-tooltip={config.operation_status === 'PROVISIONING' ? 'Wait for destination setup to finish before syncing.' : 'Start a full on-demand sync for this project.'} disabled={config.operation_status === 'PROVISIONING' || !config.notion_data_source_id} onClick={onSync}>↻ Sync now</button></div></section>
+    <section className="detail-stats"><div className="panel detail-stat"><small>CONFIGURATION STATUS</small><StatusPill status={config.status} /><ConfigOperationPill status={config.operation_status} error={config.operation_error} /></div><div className="panel detail-stat"><small>SCHEDULE</small><b>◷ {scheduleLabel(config)}</b></div><div className="panel detail-stat"><small>NEXT RUN · LOCAL TIME</small><b>{nextRunLabel}</b></div><div className="panel detail-stat"><small>SYNC OPTIONS</small><b>Work items</b></div></section>
     <section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent sync runs</h2><p>Each run shows its result and the number of work items created, changed, or unchanged.</p></div><span className="count-badge">{jobs.length}</span></div><JobsTable jobs={jobs} configs={[config]} loading={loading} />{nextBeforeId && <div className="load-more"><button className="button button-secondary" data-tooltip="Load the next page of this project's runs." disabled={loading} onClick={onLoadMore}>{loading ? 'Loading…' : 'Load more runs'}</button></div>}</section>
     <section className="panel destination-panel"><div className="destination-icon">N</div><div><h2>Notion destination</h2><p>Workspace page: <b>Plane Workspace — {config.project.workspace_slug}</b></p><p>Project page: <b>{config.project.name}</b> · Database: <b>Plane Work Items</b></p></div><div className="destination-ids">
-      <DestinationIdentifier name="DATABASE ID" value={config.notion_database_id} feedback={copyFeedback?.key === 'database' ? copyFeedback.result : null} onCopy={() => void copyDestinationId('database', config.notion_database_id)} />
-      <DestinationIdentifier name="DATA SOURCE ID" value={config.notion_data_source_id} feedback={copyFeedback?.key === 'dataSource' ? copyFeedback.result : null} onCopy={() => void copyDestinationId('dataSource', config.notion_data_source_id)} />
+      <DestinationIdentifier name="DATABASE ID" value={config.notion_database_id} feedback={copyFeedback?.key === 'database' ? copyFeedback.result : null} onCopy={() => config.notion_database_id && void copyDestinationId('database', config.notion_database_id)} />
+      <DestinationIdentifier name="DATA SOURCE ID" value={config.notion_data_source_id} feedback={copyFeedback?.key === 'dataSource' ? copyFeedback.result : null} onCopy={() => config.notion_data_source_id && void copyDestinationId('dataSource', config.notion_data_source_id)} />
     </div></section>
   </>;
 }
 
 function DestinationIdentifier({ name, value, feedback, onCopy }: {
-  name: string; value: string; feedback: 'copied' | 'failed' | null; onCopy: () => void;
+  name: string; value: string | null; feedback: 'copied' | 'failed' | null; onCopy: () => void;
 }) {
   const buttonLabel = feedback === 'copied' ? 'Copied' : feedback === 'failed' ? 'Try again' : 'Copy';
   let buttonDescription = `Copy ${name.toLowerCase()} ID`;
   if (feedback === 'copied') buttonDescription = `${name.toLowerCase()} ID copied`;
   else if (feedback === 'failed') buttonDescription = `Could not copy ${name.toLowerCase()} ID`;
-  return <span className="destination-id"><span>{name}</span><div className="destination-id-value"><code title={value}>{value}</code><button type="button" aria-label={buttonDescription} data-tooltip={buttonDescription} onClick={onCopy}>{buttonLabel}</button></div></span>;
+  return <span className="destination-id"><span>{name}</span><div className="destination-id-value"><code title={value || undefined}>{value || 'Not provisioned yet'}</code><button type="button" aria-label={buttonDescription} data-tooltip={buttonDescription} disabled={!value} onClick={onCopy}>{buttonLabel}</button></div></span>;
 }
 
 function JobsTable({ jobs, configs, loading }: {
@@ -490,6 +495,7 @@ function StatusPill({ status }: { status: string }) {
     DISABLED: 'Settings are kept, but scheduled syncs are paused.',
     ARCHIVED: 'This configuration is no longer in use. Scheduled syncs are stopped.',
     PENDING: 'Waiting for the worker to start this sync.',
+    HELD: 'Waiting while this configuration update is applied.',
     RUNNING: 'The worker is processing this sync.',
     SUCCESS: 'This sync completed successfully.',
     FAILED: 'This sync failed. Check its run details for the error.',
@@ -499,10 +505,22 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`status-pill ${className}`} title={description} aria-label={`${statusLabel(status)}. ${description}`}><i />{statusLabel(status)}</span>;
 }
 
+function ConfigOperationPill({ status, error }: { status: SyncConfig['operation_status']; error: string | null }) {
+  if (status === 'READY') return null;
+  const labels = { PROVISIONING: 'Setting up', UPDATING: 'Applying changes', FAILED: 'Setup failed', READY: 'Ready' };
+  const descriptions = {
+    PROVISIONING: 'The worker is creating the Notion destination and schedule.',
+    UPDATING: 'The worker is applying the new settings and updating the schedule.',
+    FAILED: error || 'The latest configuration operation failed.',
+    READY: 'Configuration is ready.',
+  };
+  return <span className={`operation-pill ${status.toLowerCase()}`} title={descriptions[status]}>{labels[status]}</span>;
+}
+
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     ACTIVE: 'Active', DISABLED: 'Disabled', ARCHIVED: 'Archived',
-    PENDING: 'Pending', RUNNING: 'Running', SUCCESS: 'Successful', FAILED: 'Failed',
+    PENDING: 'Pending', HELD: 'On hold', RUNNING: 'Running', SUCCESS: 'Successful', FAILED: 'Failed',
     SKIPPED_OVERLAP: 'Skipped (overlap)',
   };
   return labels[status] || status.replaceAll('_', ' ').toLowerCase();
@@ -625,7 +643,7 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
       <div className="form-grid window-fields"><label className="field"><span>Start time <em>OPTIONAL</em></span><input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} /><small>Inclusive · UTC</small></label><label className="field"><span>End time <em>OPTIONAL</em></span><input type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} /><small>Exclusive · UTC</small></label></div>
     </section>
     </div>
-    <div className="modal-footer"><span>{mode === 'create' ? 'The Notion database is created automatically. The first scheduled sync runs at its next scheduled time; use Sync now to start immediately.' : 'Changes to the schedule apply to future runs.'}</span><div><button type="button" data-tooltip="Close without saving changes." className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" data-tooltip={mode === 'create' ? 'Create this sync configuration.' : 'Save configuration changes.'} className="button button-primary" disabled={saving || invalidWeeklySchedule}>{saving ? 'Saving…' : mode === 'create' ? 'Create configuration' : 'Save changes'} <span>→</span></button></div></div>
+    <div className="modal-footer"><span>{mode === 'create' ? 'The service queues Notion setup in the background. You can sync after setup finishes.' : 'The service queues this update; scheduled runs pause until it is applied.'}</span><div><button type="button" data-tooltip="Close without saving changes." className="button button-secondary" onClick={onClose}>Cancel</button><button type="submit" data-tooltip={mode === 'create' ? 'Queue this configuration and its Notion setup.' : 'Queue these configuration changes.'} className="button button-primary" disabled={saving || invalidWeeklySchedule}>{saving ? 'Saving…' : mode === 'create' ? 'Create configuration' : 'Save changes'} <span>→</span></button></div></div>
   </form></Modal>;
 }
 

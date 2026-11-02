@@ -22,6 +22,8 @@ vi.mock('./api', () => ({
 const config: SyncConfig = {
   config_id: 'config-1',
   status: 'ARCHIVED',
+  operation_status: 'READY',
+  operation_error: null,
   project: {
     plane_project_document_id: 'project-ref-1',
     workspace_slug: 'workspace',

@@ -8,20 +8,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import dev.planetonotion.TestData;
 import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.repositories.AdHocNotionDestinationRepository;
+import dev.planetonotion.TestData;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Mock;
 
 @ExtendWith(MockitoExtension.class)
 class AdHocNotionDestinationServiceTest {
@@ -32,12 +33,14 @@ class AdHocNotionDestinationServiceTest {
     private AdHocNotionDestinationRepository destinationRepository;
     @Mock
     private NotionClient notionClient;
+    @Mock
+    private NotionBlockClient notionBlockClient;
 
     private AdHocNotionDestinationService service;
 
     @BeforeEach
     void setUp() {
-        service = new AdHocNotionDestinationService(destinationRepository, notionClient,
+        service = new AdHocNotionDestinationService(destinationRepository, notionClient, notionBlockClient,
                 TestData.integrationProperties());
     }
 
@@ -77,7 +80,8 @@ class AdHocNotionDestinationServiceTest {
                 URI.create("https://api.plane.test"), URI.create("https://app.plane.test"), "unused",
                 URI.create("https://notion.test"), "unused", "parent-page-id",
                 "legacy-page", "legacy-database", "legacy-source");
-        service = new AdHocNotionDestinationService(destinationRepository, notionClient, legacyProperties);
+        service = new AdHocNotionDestinationService(destinationRepository, notionClient, notionBlockClient,
+                legacyProperties);
         when(destinationRepository.findById(DESTINATION_ID)).thenReturn(Optional.empty());
         when(destinationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -101,7 +105,7 @@ class AdHocNotionDestinationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Mongo unavailable");
 
-        verify(notionClient).archivePage("new-page");
+        verify(notionBlockClient).archivePage("new-page");
     }
 
     private AdHocNotionDestinationDocument destination(String page, String database, String source) {

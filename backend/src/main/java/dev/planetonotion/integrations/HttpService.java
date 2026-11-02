@@ -1,10 +1,10 @@
 package dev.planetonotion.integrations;
 
-import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
 import java.net.URI;
-import java.util.Locale;
 import java.util.function.Supplier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -13,27 +13,35 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class HttpService {
 
-    public JsonNode get(RestClient client, String service, String uri) {
-        return json(service, () -> client.get().uri(uri).retrieve().body(JsonNode.class));
+    public <T> T get(RestClient client, IntegrationProvider provider, String uri, Class<T> responseType) {
+        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public JsonNode get(RestClient client, String service, URI uri) {
-        return json(service, () -> client.get().uri(uri).retrieve().body(JsonNode.class));
+    public <T> T get(RestClient client, IntegrationProvider provider, URI uri, Class<T> responseType) {
+        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public JsonNode post(RestClient client, String service, String uri, Object body) {
-        return json(service, () -> client.post().uri(uri).body(body).retrieve().body(JsonNode.class));
+    public <T> T get(RestClient client, IntegrationProvider provider, URI uri,
+            ParameterizedTypeReference<T> responseType) {
+        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public JsonNode patch(RestClient client, String service, String uri, Object body) {
-        return json(service, () -> client.patch().uri(uri).body(body).retrieve().body(JsonNode.class));
+    public <T> T post(RestClient client, IntegrationProvider provider, String uri, Object body,
+            Class<T> responseType) {
+        return typed(provider, () -> client.post().uri(uri).body(body).retrieve().body(responseType));
     }
 
-    public void patchWithoutResponse(RestClient client, String service, String uri, Object body) {
-        execute(service, () -> client.patch().uri(uri).body(body).retrieve().toBodilessEntity());
+    public <T> T patch(RestClient client, IntegrationProvider provider, String uri, Object body,
+            Class<T> responseType) {
+        return typed(provider, () -> client.patch().uri(uri).body(body).retrieve().body(responseType));
     }
 
-    public void delete(RestClient client, String service, String uri, String failureCode, String failureMessage) {
+    public void patchWithoutResponse(RestClient client, IntegrationProvider provider, String uri, Object body) {
+        execute(provider, () -> client.patch().uri(uri).body(body).retrieve().toBodilessEntity());
+    }
+
+    public void delete(RestClient client, IntegrationProvider provider, String uri, String failureCode,
+            String failureMessage) {
         try {
             client.delete().uri(uri).retrieve().toBodilessEntity();
         } catch (RestClientResponseException exception) {
@@ -43,28 +51,30 @@ public class HttpService {
         }
     }
 
-    private JsonNode json(String service, Supplier<JsonNode> request) {
-        JsonNode response = execute(service, request);
+    private <T> T typed(IntegrationProvider provider, Supplier<T> request) {
+        T response = execute(provider, request);
         if (response == null) {
-            String name = service.toLowerCase(Locale.ROOT);
-            throw new IntegrationException(service + "_RESPONSE_INVALID", 502,
-                    name.substring(0, 1).toUpperCase(Locale.ROOT) + name.substring(1) + " returned an empty response.");
+            String label = label(provider);
+            throw new IntegrationException(provider.name() + "_RESPONSE_INVALID", 502,
+                    label + " returned an empty response.");
         }
         return response;
     }
 
-    private <T> T execute(String service, Supplier<T> request) {
+    private <T> T execute(IntegrationProvider provider, Supplier<T> request) {
         try {
             return request.get();
         } catch (RestClientResponseException exception) {
             int status = exception.getStatusCode().value();
-            throw new IntegrationException(service + "_API_ERROR", status,
-                    service.substring(0, 1) + service.substring(1).toLowerCase(Locale.ROOT)
-                            + " API request failed (HTTP " + status + ").");
+            throw new IntegrationException(provider.name() + "_API_ERROR", status,
+                    label(provider) + " API request failed (HTTP " + status + ").");
         } catch (RestClientException exception) {
-            String label = service.substring(0, 1) + service.substring(1).toLowerCase(Locale.ROOT);
-            throw new IntegrationException(service + "_UNAVAILABLE", 0,
-                    "Could not connect to the configured " + label + " API.");
+            throw new IntegrationException(provider.name() + "_UNAVAILABLE", 0,
+                    "Could not connect to the configured " + label(provider) + " API.");
         }
+    }
+
+    private String label(IntegrationProvider provider) {
+        return provider.name().charAt(0) + provider.name().substring(1).toLowerCase(java.util.Locale.ROOT);
     }
 }

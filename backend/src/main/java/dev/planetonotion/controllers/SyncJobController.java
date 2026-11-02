@@ -1,17 +1,17 @@
 package dev.planetonotion.controllers;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.MongoIdParser;
-import dev.planetonotion.models.documents.jobs.SyncJobDocument;
-import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
-import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
-import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
+import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.ManualTaskSyncRequest;
 import dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse;
+import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -39,8 +39,8 @@ public class SyncJobController {
 
     @GetMapping
     public JobHistoryResponse list(@RequestParam(required = false, name = "config_id") String configId,
-            @RequestParam(required = false, name = "job_status") SyncJobStatus jobStatus,
-            @RequestParam(required = false, name = "job_type") SyncJobType jobType,
+            @RequestParam(required = false, name = "job_status") JobStatus jobStatus,
+            @RequestParam(required = false, name = "job_type") JobType jobType,
             @RequestParam(required = false, name = "created_from") Instant createdFrom,
             @RequestParam(required = false, name = "created_to") Instant createdTo,
             @RequestParam(required = false, name = "before_id") String beforeId,

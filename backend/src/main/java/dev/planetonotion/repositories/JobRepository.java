@@ -1,20 +1,23 @@
 package dev.planetonotion.repositories;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
+import dev.planetonotion.models.documents.jobs.JobDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;
 
-/** Persistence operations for scheduled and manual sync jobs. */
-public interface SyncJobRepository {
+/** Persistence operations for the shared sync and configuration job queue. */
+public interface JobRepository {
+    // Queue claim/save operations cover every job type; run-history operations
+    // return sync jobs only.
 
     /**
      * Atomically claims and returns one pending job whose scheduled time is due.
      */
-    Optional<SyncJobDocument> claimNextDueJob(Instant now);
+    Optional<JobDocument> claimNextDueJob(Instant now);
 
     /**
      * Returns the start time of the latest successful project-scope run. The worker
@@ -26,7 +29,7 @@ public interface SyncJobRepository {
     /**
      * Returns one filtered page of run history, ordered by descending MongoDB ID.
      */
-    JobPage findJobs(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
+    JobPage findJobs(ObjectId configId, JobStatus jobStatus, JobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize);
 
     /**
@@ -41,14 +44,23 @@ public interface SyncJobRepository {
      */
     List<SyncJobDocument> findPendingScheduledJobsByConfigId(ObjectId configId);
 
-    /** Deletes jobs matching the configuration, type, and status. */
-    void deleteByConfigIdAndJobTypeAndJobStatus(ObjectId configId, SyncJobType jobType, SyncJobStatus jobStatus);
+    /** Holds queued sync work while a configuration update is being applied. */
+    void holdPendingByConfigId(ObjectId configId, Instant updatedAt);
+
+    /**
+     * Deletes queued or held scheduled occurrences before a schedule is rebuilt.
+     */
+    void deletePendingAndHeldScheduledByConfigId(ObjectId configId);
+
+    /** Requeues held manual sync work after a configuration operation finishes. */
+    void releaseHeldByConfigId(ObjectId configId, Instant updatedAt);
 
     /** Finds a sync job by its MongoDB document ID. */
     Optional<SyncJobDocument> findById(ObjectId id);
 
     /** Inserts or updates a sync job. */
-    SyncJobDocument save(SyncJobDocument job);
+    /** Inserts or updates any concrete job subtype in the shared collection. */
+    <T extends JobDocument> T save(T job);
 
     /**
      * A page of history and the keyset cursor to request the following page, when

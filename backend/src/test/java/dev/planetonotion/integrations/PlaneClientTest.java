@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import dev.planetonotion.TestData;
 import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.TestData;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +78,7 @@ class PlaneClientTest {
         List<String> itemIds = new ArrayList<>();
         client.forEachProjectWorkItemPage("workspace", "project-id",
                 Instant.parse("2026-10-31T09:59:59.900Z"), Instant.parse("2026-10-31T10:00:00Z"),
-                page -> page.forEach(item -> itemIds.add(item.path("id").asString())));
+                page -> page.forEach(item -> itemIds.add(item.id())));
 
         assertThat(itemIds).containsExactly("item-1", "item-2");
     }

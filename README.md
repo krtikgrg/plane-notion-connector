@@ -2,6 +2,8 @@
 
 Copies active Plane work items into a Notion database for each configured project. Includes scheduled and manual syncs, run history, and a local dashboard.
 
+Config setup and edits run asynchronously through the shared MongoDB job queue; the UI shows provisioning status.
+
 The first manual task sync without a project config creates a shared Notion destination under the configured parent page and stores its IDs in MongoDB.
 
 **Stack:** Java 21, Spring Boot, React + TypeScript, Vite, MongoDB.

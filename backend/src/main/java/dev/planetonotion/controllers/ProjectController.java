@@ -1,6 +1,6 @@
 package dev.planetonotion.controllers;
 
-import dev.planetonotion.services.PlaneService;
+import dev.planetonotion.integrations.PlaneClient;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.ApiDtos.StatusResponse;
 import dev.planetonotion.models.ApiDtos.ProjectRefreshRequest;
@@ -22,17 +22,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/plane")
 public class ProjectController {
 
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final ProjectCatalogService projectCatalogService;
 
-    public ProjectController(PlaneService planeService, ProjectCatalogService projectCatalogService) {
-        this.planeService = planeService;
+    public ProjectController(PlaneClient planeClient, ProjectCatalogService projectCatalogService) {
+        this.planeClient = planeClient;
         this.projectCatalogService = projectCatalogService;
     }
 
     @PostMapping("/connection/test")
     public StatusResponse testConnection() {
-        planeService.testConnection();
+        planeClient.testConnection();
         return new StatusResponse("CONNECTED");
     }
 
@@ -55,7 +55,8 @@ public class ProjectController {
 
     private ProjectResponse toResponse(PlaneProjectDocument project) {
         return new ProjectResponse(project.id().toHexString(), project.planeWorkspaceSlug(), project.planeProjectId(),
-                project.planeProjectName(), project.planeProjectIdentifier(), planeService.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
+                project.planeProjectName(), project.planeProjectIdentifier(),
+                planeClient.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
                 project.isArchivedInPlane(), project.isAvailable());
     }
 }

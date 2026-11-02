@@ -1,8 +1,9 @@
 package dev.planetonotion.models;
 
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
@@ -99,6 +100,10 @@ public final class ApiDtos {
             String configId,
             /** Lifecycle status that determines whether scheduled runs are created. */
             ConfigStatus status,
+            /** Background setup state, separate from the config's lifecycle state. */
+            ConfigOperationStatus operationStatus,
+            /** Sanitized detail when the latest setup or update operation failed. */
+            String operationError,
             /** Plane project catalog record associated with this config. */
             ProjectResponse project,
             /** Notion page containing the project's summary and work-item database. */
@@ -144,7 +149,7 @@ public final class ApiDtos {
             /** MongoDB identifier of the queued job. */
             String jobId,
             /** Initial status of the newly queued job. */
-            SyncJobStatus jobStatus,
+            JobStatus jobStatus,
             /** Time the job was created. */
             Instant createdAt) {
     }
@@ -177,11 +182,11 @@ public final class ApiDtos {
             /** MongoDB ID of the job. */
             String jobId,
             /** Whether the job was manual or scheduled. */
-            SyncJobType jobType,
+            JobType jobType,
             /** Whether the job targets a project or one work item. */
             SyncScope scope,
             /** Current lifecycle state of the job. */
-            SyncJobStatus jobStatus,
+            JobStatus jobStatus,
             /** Config ID, or null for an ad hoc task-URL job. */
             String configId,
             /** MongoDB ID of the cached Plane project record. */

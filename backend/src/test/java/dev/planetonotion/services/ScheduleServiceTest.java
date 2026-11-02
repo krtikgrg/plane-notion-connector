@@ -8,38 +8,39 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import dev.planetonotion.TestData;
-import dev.planetonotion.models.documents.jobs.SyncJobResult;
-import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
-import dev.planetonotion.models.documents.jobs.SyncJobDocument;
-import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
-import dev.planetonotion.repositories.SyncJobRepository;
-import java.time.Instant;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
+import dev.planetonotion.repositories.JobRepository;
+import dev.planetonotion.TestData;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Mock;
 
 @ExtendWith(MockitoExtension.class)
 class ScheduleServiceTest {
 
     @Mock
-    private SyncJobRepository jobRepository;
+    private JobRepository jobRepository;
 
     private ScheduleService service;
 
@@ -57,12 +58,11 @@ class ScheduleServiceTest {
         service.reset(config);
 
         ArgumentCaptor<SyncJobDocument> captor = ArgumentCaptor.forClass(SyncJobDocument.class);
-        verify(jobRepository).deleteByConfigIdAndJobTypeAndJobStatus(config.id(), SyncJobType.SCHEDULED,
-                SyncJobStatus.PENDING);
+        verify(jobRepository).deletePendingAndHeldScheduledByConfigId(config.id());
         verify(jobRepository).save(captor.capture());
         assertThat(TestData.scheduledFor(captor.getValue())).isEqualTo(start);
-        assertThat(captor.getValue().jobStatus()).isEqualTo(SyncJobStatus.PENDING);
-        assertThat(captor.getValue().jobType()).isEqualTo(SyncJobType.SCHEDULED);
+        assertThat(captor.getValue().jobStatus()).isEqualTo(JobStatus.PENDING);
+        assertThat(captor.getValue().jobType()).isEqualTo(JobType.SCHEDULED);
     }
 
     @Test
@@ -72,8 +72,7 @@ class ScheduleServiceTest {
 
         service.reset(config);
 
-        verify(jobRepository).deleteByConfigIdAndJobTypeAndJobStatus(config.id(), SyncJobType.SCHEDULED,
-                SyncJobStatus.PENDING);
+        verify(jobRepository).deletePendingAndHeldScheduledByConfigId(config.id());
         verify(jobRepository, never()).save(any());
     }
 
@@ -134,7 +133,7 @@ class ScheduleServiceTest {
 
         ArgumentCaptor<SyncJobDocument> nextCaptor = ArgumentCaptor.forClass(SyncJobDocument.class);
         verify(jobRepository).save(nextCaptor.capture());
-        assertThat(nextCaptor.getValue().jobStatus()).isEqualTo(SyncJobStatus.PENDING);
+        assertThat(nextCaptor.getValue().jobStatus()).isEqualTo(JobStatus.PENDING);
         assertThat(TestData.scheduledFor(nextCaptor.getValue())).isEqualTo(Instant.parse("2030-01-18T09:00:00Z"));
     }
 
@@ -169,9 +168,9 @@ class ScheduleServiceTest {
         Instant now = Instant.now();
         SyncConfigDocument config = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
                 ScheduleType.INTERVAL, 10, IntervalUnit.MINUTES, now.minusSeconds(7200), null);
-        ScheduledSyncJobDocument finished = new ScheduledSyncJobDocument(new ObjectId(), SyncJobType.SCHEDULED,
+        ScheduledSyncJobDocument finished = new ScheduledSyncJobDocument(new ObjectId(), JobType.SCHEDULED,
                 SyncScope.PROJECT,
-                SyncJobStatus.SUCCESS, configId, projectRef, now.minusSeconds(3600),
+                JobStatus.SUCCESS, configId, projectRef, now.minusSeconds(3600),
                 now.minusSeconds(3700), now, 1, new SyncJobResult(5, 2, 1, 2), null, null,
                 now.minusSeconds(3700), now);
         when(jobRepository.findPendingScheduledJobsByConfigId(configId)).thenReturn(List.of());
@@ -181,14 +180,15 @@ class ScheduleServiceTest {
         ArgumentCaptor<SyncJobDocument> captor = ArgumentCaptor.forClass(SyncJobDocument.class);
         verify(jobRepository, atLeast(2)).save(captor.capture());
         List<SyncJobDocument> created = captor.getAllValues();
-        assertThat(created).anyMatch(job -> job.jobStatus() == SyncJobStatus.SKIPPED_OVERLAP);
+        assertThat(created).anyMatch(job -> job.jobStatus() == JobStatus.SKIPPED_OVERLAP);
         assertThat(created).anyMatch(job -> job instanceof ScheduledSyncJobDocument scheduled
-                && job.jobStatus() == SyncJobStatus.PENDING && scheduled.scheduledFor().isAfter(Instant.now()));
+                && job.jobStatus() == JobStatus.PENDING && scheduled.scheduledFor().isAfter(Instant.now()));
     }
 
     private SyncConfigDocument calendarConfig(Instant createdAt, Instant startAt, Instant endAt,
             int interval, CalendarFrequency frequency, List<DayOfWeek> days, LocalTime runAt) {
-        return new SyncConfigDocument(new ObjectId(), ConfigStatus.ACTIVE, new ObjectId(),
+        return new SyncConfigDocument(new ObjectId(), ConfigStatus.ACTIVE, ConfigOperationStatus.READY, null,
+                new ObjectId(),
                 new SyncOptions(true, false), new SyncSchedule(ScheduleType.CALENDAR, startAt, endAt, null,
                         new SyncSchedule.Calendar(frequency, interval, days, runAt)),
                 createdAt, createdAt);

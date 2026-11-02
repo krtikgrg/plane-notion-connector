@@ -1,26 +1,30 @@
 package dev.planetonotion.services.sync;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
-import dev.planetonotion.models.documents.jobs.SyncJobResult;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigOperationStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
+import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.jobs.ConfigOperationJobDocument;
+import dev.planetonotion.models.documents.jobs.JobDocument;
 import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
-import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
-import dev.planetonotion.repositories.SyncConfigRepository;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
+import dev.planetonotion.models.documents.PlaneProjectDocument;
+import dev.planetonotion.repositories.JobRepository;
 import dev.planetonotion.repositories.PlaneProjectRepository;
-import dev.planetonotion.repositories.SyncJobRepository;
+import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.services.AdHocNotionDestinationService;
+import dev.planetonotion.services.ConfigService;
 import dev.planetonotion.services.NotionHierarchyService;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.ScheduleService;
-import java.time.Instant;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +38,7 @@ public class SyncJobWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(SyncJobWorker.class);
     private static final Duration CHECKPOINT_OVERLAP = Duration.ofMillis(100);
 
-    private final SyncJobRepository jobRepository;
+    private final JobRepository jobRepository;
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
     private final WorkItemSyncService workItemSyncService;
@@ -42,11 +46,13 @@ public class SyncJobWorker {
     private final NotionHierarchyService notionHierarchyService;
     private final ScheduleService scheduleService;
     private final AdHocNotionDestinationService adHocDestinationService;
+    private final ConfigService configService;
 
-    public SyncJobWorker(SyncJobRepository jobRepository, SyncConfigRepository configRepository,
+    public SyncJobWorker(JobRepository jobRepository, SyncConfigRepository configRepository,
             PlaneProjectRepository projectRepository, WorkItemSyncService workItemSyncService,
             ProjectCatalogService projectCatalogService, NotionHierarchyService notionHierarchyService,
-            ScheduleService scheduleService, AdHocNotionDestinationService adHocDestinationService) {
+            ScheduleService scheduleService, AdHocNotionDestinationService adHocDestinationService,
+            ConfigService configService) {
         this.jobRepository = jobRepository;
         this.configRepository = configRepository;
         this.projectRepository = projectRepository;
@@ -55,11 +61,50 @@ public class SyncJobWorker {
         this.notionHierarchyService = notionHierarchyService;
         this.scheduleService = scheduleService;
         this.adHocDestinationService = adHocDestinationService;
+        this.configService = configService;
     }
 
     @Scheduled(fixedDelayString = "${sync.worker.poll-interval-ms:5000}")
     public void claimAndRunOne() {
-        jobRepository.claimNextDueJob(Instant.now()).ifPresent(this::run);
+        jobRepository.claimNextDueJob(Instant.now()).ifPresent(this::dispatch);
+    }
+
+    private void dispatch(JobDocument job) {
+        if (job instanceof ConfigOperationJobDocument operation) {
+            runConfigurationOperation(operation);
+            return;
+        }
+        if (job instanceof SyncJobDocument syncJob) {
+            run(syncJob);
+            return;
+        }
+        throw new IllegalStateException("Unknown queued job type: " + job.getClass().getName());
+    }
+
+    private void runConfigurationOperation(ConfigOperationJobDocument job) {
+        try {
+            configService.processOperation(job);
+            jobRepository.save(copyConfigurationJob(job, JobStatus.SUCCESS, Instant.now(), null, null));
+        } catch (Exception exception) {
+            ErrorDetails error = configurationErrorDetails(exception);
+            try {
+                configService.failOperation(job, error.code(), error.message());
+            } catch (RuntimeException recoveryFailure) {
+                exception.addSuppressed(recoveryFailure);
+                LOGGER.warn("Could not restore config state after operation {} failed", job.id());
+            }
+            jobRepository.save(copyConfigurationJob(job, JobStatus.FAILED, Instant.now(),
+                    error.code(), error.message()));
+            LOGGER.warn("Configuration job {} failed with {} ({})", job.id(), error.code(),
+                    exception.getClass().getSimpleName());
+        }
+    }
+
+    private ConfigOperationJobDocument copyConfigurationJob(ConfigOperationJobDocument job,
+            JobStatus status, Instant finishedAt, String errorCode, String errorMessage) {
+        return new ConfigOperationJobDocument(job.id(), job.jobType(), status, job.configId(), job.operationType(),
+                job.targetStatus(), job.targetSyncOptions(), job.targetSchedule(), job.startedAt(), finishedAt,
+                job.attemptCount(), errorCode, errorMessage, job.createdAt(), finishedAt);
     }
 
     private void run(SyncJobDocument job) {
@@ -68,12 +113,12 @@ public class SyncJobWorker {
         try {
             WorkItemSyncService.SyncResult result = execute(job, progress);
             Instant finishedAt = Instant.now();
-            jobRepository.save(copy(job, SyncJobStatus.SUCCESS, finishedAt, toJobResult(result), null, null));
+            jobRepository.save(copy(job, JobStatus.SUCCESS, finishedAt, toJobResult(result), null, null));
         } catch (Exception exception) {
             Instant finishedAt = Instant.now();
             ErrorDetails error = errorDetails(exception);
             WorkItemSyncService.SyncResult partial = progress.get();
-            jobRepository.save(copy(job, SyncJobStatus.FAILED, finishedAt, toJobResult(partial),
+            jobRepository.save(copy(job, JobStatus.FAILED, finishedAt, toJobResult(partial),
                     error.code(), error.message()));
             LOGGER.warn("Sync job {} failed with {} ({})", job.id(), error.code(),
                     exception.getClass().getSimpleName());
@@ -105,7 +150,7 @@ public class SyncJobWorker {
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND",
                         "The sync config was not found."));
         boolean forceArchivedConfig = job instanceof ManualSyncJobDocument manual && manual.forceArchivedConfig();
-        if (job.jobType() == SyncJobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
+        if (job.jobType() == JobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
                 && !forceArchivedConfig) {
             throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ARCHIVED",
                     "Enable force run on archived config to continue.");
@@ -126,13 +171,14 @@ public class SyncJobWorker {
             return;
         try {
             configRepository.findById(finishedJob.configId())
+                    .filter(config -> config.operationStatus() == ConfigOperationStatus.READY)
                     .ifPresent(config -> scheduleService.afterRun(finishedJob, config));
         } catch (RuntimeException exception) {
             LOGGER.warn("Could not schedule the next run for config {}", finishedJob.configId());
         }
     }
 
-    private SyncJobDocument copy(SyncJobDocument old, SyncJobStatus status, Instant finishedAt,
+    private SyncJobDocument copy(SyncJobDocument old, JobStatus status, Instant finishedAt,
             SyncJobResult result, String errorCode, String errorMessage) {
         if (old instanceof ManualSyncJobDocument manual) {
             return new ManualSyncJobDocument(old.id(), old.jobType(), old.scope(), status, old.configId(),
@@ -169,6 +215,17 @@ public class SyncJobWorker {
             return new ErrorDetails(service.errorCode(), service.getMessage());
         }
         return new ErrorDetails("SYNC_FAILED", "The sync failed. Check the local service logs for details.");
+    }
+
+    private ErrorDetails configurationErrorDetails(Exception exception) {
+        if (exception instanceof IntegrationException integration) {
+            return new ErrorDetails(integration.errorCode(), integration.getMessage());
+        }
+        if (exception instanceof ServiceException service) {
+            return new ErrorDetails(service.errorCode(), service.getMessage());
+        }
+        return new ErrorDetails("CONFIG_OPERATION_FAILED",
+                "Configuration setup failed. Check the local service logs for details.");
     }
 
     private record ErrorDetails(String code, String message) {

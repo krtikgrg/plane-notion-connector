@@ -1,33 +1,33 @@
 package dev.planetonotion.services;
 
-import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
+import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
-import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
-import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobResult;
-import dev.planetonotion.repositories.SyncJobRepository;
+import dev.planetonotion.repositories.JobRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.time.ZonedDateTime;
+import java.time.ZoneOffset;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ScheduleService {
 
-    private final SyncJobRepository jobRepository;
+    private final JobRepository jobRepository;
 
-    public ScheduleService(SyncJobRepository jobRepository) {
+    public ScheduleService(JobRepository jobRepository) {
         this.jobRepository = jobRepository;
     }
 
@@ -42,11 +42,11 @@ public class ScheduleService {
                 ? intervalOccurrenceAtOrAfter(schedule, anchor, now)
                 : calendarOccurrence(config, now.minusNanos(1));
         if (insideWindow(schedule, first))
-            jobRepository.save(newScheduledJob(config, first, SyncJobStatus.PENDING));
+            jobRepository.save(newScheduledJob(config, first, JobStatus.PENDING));
     }
 
     public void cancelPending(ObjectId configId) {
-        jobRepository.deleteByConfigIdAndJobTypeAndJobStatus(configId, SyncJobType.SCHEDULED, SyncJobStatus.PENDING);
+        jobRepository.deletePendingAndHeldScheduledByConfigId(configId);
     }
 
     private Instant intervalOccurrenceAtOrAfter(SyncSchedule schedule, Instant anchor, Instant now) {
@@ -90,15 +90,15 @@ public class ScheduleService {
         Instant next = nextOccurrence(config, base);
         while (next != null && !next.isAfter(now)) {
             if (insideWindow(config.schedule(), next))
-                jobRepository.save(newScheduledJob(config, next, SyncJobStatus.SKIPPED_OVERLAP));
+                jobRepository.save(newScheduledJob(config, next, JobStatus.SKIPPED_OVERLAP));
             next = nextOccurrence(config, next);
         }
         if (insideWindow(config.schedule(), next))
-            jobRepository.save(newScheduledJob(config, next, SyncJobStatus.PENDING));
+            jobRepository.save(newScheduledJob(config, next, JobStatus.PENDING));
     }
 
     private ScheduledSyncJobDocument copyAsSkipped(ScheduledSyncJobDocument job, Instant now) {
-        return new ScheduledSyncJobDocument(job.id(), job.jobType(), job.scope(), SyncJobStatus.SKIPPED_OVERLAP,
+        return new ScheduledSyncJobDocument(job.id(), job.jobType(), job.scope(), JobStatus.SKIPPED_OVERLAP,
                 job.configId(), job.planeProjectDocumentId(), job.scheduledFor(), null, now, job.attemptCount(),
                 job.result(), "SKIPPED_OVERLAP", "The scheduled occurrence elapsed while this config was busy.",
                 job.createdAt(), now);
@@ -156,10 +156,10 @@ public class ScheduleService {
     }
 
     private ScheduledSyncJobDocument newScheduledJob(SyncConfigDocument config, Instant scheduledFor,
-            SyncJobStatus status) {
+            JobStatus status) {
         Instant now = Instant.now();
-        boolean skipped = status == SyncJobStatus.SKIPPED_OVERLAP;
-        return new ScheduledSyncJobDocument(null, SyncJobType.SCHEDULED, SyncScope.PROJECT, status,
+        boolean skipped = status == JobStatus.SKIPPED_OVERLAP;
+        return new ScheduledSyncJobDocument(new ObjectId(), JobType.SCHEDULED, SyncScope.PROJECT, status,
                 config.id(), config.planeProjectDocumentId(), scheduledFor, null, skipped ? now : null, 0,
                 SyncJobResult.empty(),
                 skipped ? "SKIPPED_OVERLAP" : null,

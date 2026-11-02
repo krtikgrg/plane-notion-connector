@@ -1,7 +1,7 @@
 package dev.planetonotion.models.documents.jobs;
 
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
+import dev.planetonotion.common.PlaneToNotionEnums.JobStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.JobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import java.time.Instant;
 import org.bson.types.ObjectId;
@@ -25,14 +25,14 @@ public final class ManualSyncJobDocument extends SyncJobDocument {
 
     /** Creates a manual run and validates its job type. */
     @PersistenceCreator
-    public ManualSyncJobDocument(ObjectId id, SyncJobType jobType, SyncScope scope, SyncJobStatus jobStatus,
+    public ManualSyncJobDocument(ObjectId id, JobType jobType, SyncScope scope, JobStatus jobStatus,
             ObjectId configId, ObjectId planeProjectDocumentId, PlaneWorkItemReference planeWorkItem,
             boolean forceArchivedConfig, Instant startedAt, Instant finishedAt, int attemptCount,
             SyncJobResult result, String errorCode, String errorMessage, Instant createdAt,
             Instant updatedAt) {
         super(id, jobType, scope, jobStatus, configId, planeProjectDocumentId, startedAt, finishedAt,
                 attemptCount, result, errorCode, errorMessage, createdAt, updatedAt);
-        if (jobType != SyncJobType.MANUAL)
+        if (jobType != JobType.MANUAL)
             throw new IllegalArgumentException("Manual job must have MANUAL job_type");
         this.planeWorkItem = planeWorkItem;
         this.forceArchivedConfig = forceArchivedConfig;
