@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import static dev.planetonotion.integrations.NotionApiConstants.Headers.*;
 import static dev.planetonotion.integrations.NotionApiConstants.Paths.BLOCKS;
 import static dev.planetonotion.integrations.NotionApiConstants.Paths.CHILDREN;
 import static dev.planetonotion.integrations.NotionApiConstants.QueryParameters.PAGE_SIZE;
