@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import type { FocusEvent, FormEvent, PointerEvent, ReactNode } from 'react';
 import { api } from './api';
-import type { ConfigStatus, Project, SchedulePayload, SyncConfig, SyncJob } from './types';
+import type { ConfigStatus, Project, SyncConfig, SyncJob, SyncSchedule } from './types';
 
 type Page = 'overview' | 'configs' | 'runs' | 'detail';
 type Notice = { kind: 'success' | 'error'; text: string } | null;
@@ -101,8 +101,8 @@ function App() {
     const requestVersion = ++runRequestVersion.current;
     try {
       const filters: Record<string, string> = {};
-      if (runStatus) filters.status = runStatus;
-      if (runTrigger) filters.trigger_type = runTrigger;
+      if (runStatus) filters.job_status = runStatus;
+      if (runTrigger) filters.job_type = runTrigger;
       setRunLoading(true);
       const result = await api.listJobs(filters);
       if (requestVersion !== runRequestVersion.current) return;
@@ -122,8 +122,8 @@ function App() {
     try {
       setRunLoading(true);
       const filters: Record<string, string> = {};
-      if (runStatus) filters.status = runStatus;
-      if (runTrigger) filters.trigger_type = runTrigger;
+      if (runStatus) filters.job_status = runStatus;
+      if (runTrigger) filters.job_type = runTrigger;
       const result = await api.listJobs(filters, cursor);
       if (requestVersion !== runRequestVersion.current) return;
       setJobs((current) => [...current, ...result.items]);
@@ -327,12 +327,12 @@ function Overview({ configs, jobs, nextRuns, loading, onNavigate, onOpen }: {
   configs: SyncConfig[]; jobs: SyncJob[]; nextRuns: Map<string, string | null>; loading: boolean;
   onNavigate: (page: Page) => void; onOpen: (config: SyncConfig) => void;
 }) {
-  const successful = jobs.filter((job) => job.status === 'SUCCESS').length;
-  const failed = jobs.filter((job) => job.status === 'FAILED').length;
+  const successful = jobs.filter((job) => job.job_status === 'SUCCESS').length;
+  const failed = jobs.filter((job) => job.job_status === 'FAILED').length;
   const completedRuns = successful + failed;
   const rate = completedRuns ? Math.round(successful / completedRuns * 100) : null;
   const active = configs.filter((config) => config.status === 'ACTIVE');
-  const totalChanged = jobs.reduce((sum, job) => sum + job.created_count + job.updated_count, 0);
+  const totalChanged = jobs.reduce((sum, job) => sum + job.result.created_notion_pages_count + job.result.updated_notion_pages_count, 0);
   const latest = [...jobs].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
   const chartJobs = [...jobs].reverse();
   const firstRun = chartJobs[0];
@@ -356,10 +356,10 @@ function Overview({ configs, jobs, nextRuns, loading, onNavigate, onOpen }: {
         <div className="mini-bars" aria-label={`Latest ${chartJobs.length} runs, oldest to newest`}>
           {chartJobs.length ? chartJobs.map((run) => {
             let height = 19;
-            if (run.status === 'SUCCESS') height = 38 + Math.min(55, run.created_count + run.updated_count * 2);
-            else if (run.status === 'FAILED') height = 26;
-            const tooltip = `${statusLabel(run.status)} ${run.trigger_type.toLowerCase()} run · ${formatDate(run.created_at)} · ${run.eligible_count} eligible · ${run.created_count} created · ${run.updated_count} updated`;
-            return <span key={run.job_id} className={run.status === 'SUCCESS' ? 'successful' : 'other'} data-tooltip={tooltip} style={{ height: `${height}%` }} />;
+            if (run.job_status === 'SUCCESS') height = 38 + Math.min(55, run.result.created_notion_pages_count + run.result.updated_notion_pages_count * 2);
+            else if (run.job_status === 'FAILED') height = 26;
+            const tooltip = `${statusLabel(run.job_status)} ${run.job_type.toLowerCase()} run · ${formatDate(run.created_at)} · ${run.result.eligible_plane_work_items_count} eligible · ${run.result.created_notion_pages_count} created · ${run.result.updated_notion_pages_count} updated`;
+            return <span key={run.job_id} className={run.job_status === 'SUCCESS' ? 'successful' : 'other'} data-tooltip={tooltip} style={{ height: `${height}%` }} />;
           }) : <div className="mini-bars-empty">No runs yet</div>}
         </div>
         {firstRun && lastRun && <div className="mini-bars-axis"><span>{formatDate(firstRun.created_at)}</span><span>{formatDate(lastRun.created_at)}</span></div>}
@@ -382,7 +382,7 @@ function Configurations({ configs, nextRuns, loading, onCreate, onEdit, onOpen, 
   return <>
     <section className="page-heading heading-row"><div><div className="eyebrow">PROJECT SYNC SETTINGS <span className="eyebrow-line" /></div><h1>Configurations<span className="heading-period">.</span></h1><p className="subtitle">Choose a source project in Plane (project tracker), copy its work items to a Notion database, and set a schedule.</p></div><button className="button button-primary" data-tooltip="Create a new project sync configuration." onClick={onCreate}><span>＋</span> New configuration</button></section>
     <div className="panel table-panel"><div className="table-toolbar"><div className="toolbar-caption"><span className="toolbar-square">▤</span><b>Project connections</b><span className="count-badge">{configs.length}</span></div><span className="muted-inline">Each source project has its own Notion database</span></div>
-      {configs.length === 0 && !loading ? <EmptyState title="Your config list is empty" text="Choose a source workspace and project. The service creates a Notion database for it and applies the schedule you choose." action="Create configuration" onClick={onCreate} /> : <div className="table-scroll"><table><thead><tr><th scope="col">SOURCE PROJECT</th><th scope="col">STATUS</th><th scope="col">SCHEDULE</th><th scope="col">NEXT RUN · LOCAL TIME</th><th scope="col">CONFIG EDITED</th><th scope="col">ACTIONS</th></tr></thead><tbody>{configs.map((config) => <tr key={config.config_id}><td><button className="table-project" data-tooltip={`Open sync details for ${config.project.name}.`} onClick={() => onOpen(config)}><ProjectMark name={config.project.name} small /><span><b>{config.project.name}</b><ProjectSourceMeta project={config.project} /></span></button></td><td><StatusPill status={config.status} /></td><td title={config.schedule_type === 'CALENDAR' ? 'Calendar schedules use UTC.' : undefined}><span className="schedule-label"><span>◷</span>{scheduleLabel(config)}</span></td><td title={nextRuns.get(config.config_id) ? formatExactDate(nextRuns.get(config.config_id)!) : undefined}>{nextRuns.get(config.config_id) ? formatDate(nextRuns.get(config.config_id)!) : <span className="muted">No run scheduled</span>}</td><td title={formatExactDate(config.updated_at)}>{formatRelative(config.updated_at)}</td><td><div className="row-actions"><button aria-label={`Sync ${config.project.name} now`} data-tooltip="Start a full on-demand sync for this project." onClick={() => onSync(config)}>↻ <span>Sync now</span></button><button aria-label={`Edit ${config.project.name} configuration`} data-tooltip="Change this project's sync options or schedule." onClick={() => onEdit(config)}>··· <span>Edit</span></button></div></td></tr>)}</tbody></table></div>}
+      {configs.length === 0 && !loading ? <EmptyState title="Your config list is empty" text="Choose a source workspace and project. The service creates a Notion database for it and applies the schedule you choose." action="Create configuration" onClick={onCreate} /> : <div className="table-scroll"><table><thead><tr><th scope="col">SOURCE PROJECT</th><th scope="col">STATUS</th><th scope="col">SCHEDULE</th><th scope="col">NEXT RUN · LOCAL TIME</th><th scope="col">CONFIG EDITED</th><th scope="col">ACTIONS</th></tr></thead><tbody>{configs.map((config) => <tr key={config.config_id}><td><button className="table-project" data-tooltip={`Open sync details for ${config.project.name}.`} onClick={() => onOpen(config)}><ProjectMark name={config.project.name} small /><span><b>{config.project.name}</b><ProjectSourceMeta project={config.project} /></span></button></td><td><StatusPill status={config.status} /></td><td title={config.schedule.type === 'CALENDAR' ? 'Calendar schedules use UTC.' : undefined}><span className="schedule-label"><span>◷</span>{scheduleLabel(config)}</span></td><td title={nextRuns.get(config.config_id) ? formatExactDate(nextRuns.get(config.config_id)!) : undefined}>{nextRuns.get(config.config_id) ? formatDate(nextRuns.get(config.config_id)!) : <span className="muted">No run scheduled</span>}</td><td title={formatExactDate(config.updated_at)}>{formatRelative(config.updated_at)}</td><td><div className="row-actions"><button aria-label={`Sync ${config.project.name} now`} data-tooltip="Start a full on-demand sync for this project." onClick={() => onSync(config)}>↻ <span>Sync now</span></button><button aria-label={`Edit ${config.project.name} configuration`} data-tooltip="Change this project's sync options or schedule." onClick={() => onEdit(config)}>··· <span>Edit</span></button></div></td></tr>)}</tbody></table></div>}
       {loading && <div className="loading-line">Loading configurations…</div>}
     </div>
     <div className="info-banner"><span className="info-symbol">i</span><span>Each configuration copies active, non-draft work items from one source project into its own Notion database. <b>Disabled</b> keeps the settings but pauses scheduled syncs; <b>Archived</b> marks a configuration as no longer in use. Select <b>Sync now</b> to start a full sync manually.</span></div>
@@ -452,30 +452,30 @@ function JobsTable({ jobs, configs, loading }: {
       <thead><tr><th scope="col">RUN</th><th scope="col">PROJECT</th><th scope="col">TRIGGER</th><th scope="col">RUN TIME</th><th scope="col">RESULT</th><th scope="col">CHANGES</th></tr></thead>
       <tbody>{jobs.map((job) => {
         const config = job.config_id ? configById.get(job.config_id) : undefined;
-        const changed = job.created_count + job.updated_count;
-        const projectName = config?.project.name || (job.requested_task_url ? 'Manual task URL' : 'Unconfigured project');
-        const triggerLabel = job.trigger_type === 'SCHEDULED' ? 'Scheduled' : 'Manual';
+        const changed = job.result.created_notion_pages_count + job.result.updated_notion_pages_count;
+        const projectName = config?.project.name || (job.plane_work_item?.task_url ? 'Manual task URL' : 'Unconfigured project');
+        const triggerLabel = job.job_type === 'SCHEDULED' ? 'Scheduled' : 'Manual';
         let outcome = <span className="muted">—</span>;
 
-        if (job.status === 'FAILED') {
+        if (job.job_status === 'FAILED') {
           outcome = <span className="error-cell" title={job.error_message || ''}>
             {job.error_code || 'See details'}
-            {job.eligible_count > 0 && <small> · {job.eligible_count} eligible</small>}
+            {job.result.eligible_plane_work_items_count > 0 && <small> · {job.result.eligible_plane_work_items_count} eligible</small>}
           </span>;
-        } else if (job.status === 'SUCCESS') {
+        } else if (job.job_status === 'SUCCESS') {
           outcome = <span className="changes-cell">
-            {job.eligible_count} eligible · {changed} changed <small>· {job.unchanged_count} unchanged</small>
+            {job.result.eligible_plane_work_items_count} eligible · {changed} changed <small>· {job.result.unchanged_notion_pages_count} unchanged</small>
           </span>;
-        } else if (job.status === 'SKIPPED_OVERLAP') {
+        } else if (job.job_status === 'SKIPPED_OVERLAP') {
           outcome = <span className="muted">Overlap</span>;
         }
 
         return <tr key={job.job_id}>
           <td><span className="run-id">#{job.job_id.slice(0, 8)}</span></td>
           <td><span className="run-project">{projectName}</span></td>
-          <td><span className={`trigger-pill ${job.trigger_type.toLowerCase()}`}><i />{triggerLabel}</span></td>
-          <td><span className="date-cell" title={formatExactDate(job.started_at || (job.status === 'PENDING' && job.trigger_type === 'SCHEDULED' ? job.scheduled_for : null) || job.created_at)}>{formatDate(job.started_at || (job.status === 'PENDING' && job.trigger_type === 'SCHEDULED' ? job.scheduled_for : null) || job.created_at)}</span></td>
-          <td><StatusPill status={job.status} /></td>
+          <td><span className={`trigger-pill ${job.job_type.toLowerCase()}`}><i />{triggerLabel}</span></td>
+          <td><span className="date-cell" title={formatExactDate(job.started_at || (job.job_status === 'PENDING' && job.job_type === 'SCHEDULED' ? job.scheduled_for : null) || job.created_at)}>{formatDate(job.started_at || (job.job_status === 'PENDING' && job.job_type === 'SCHEDULED' ? job.scheduled_for : null) || job.created_at)}</span></td>
+          <td><StatusPill status={job.job_status} /></td>
           <td>{outcome}</td>
         </tr>;
       })}</tbody>
@@ -530,19 +530,19 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
 }) {
   const [workspaceSlug, setWorkspaceSlug] = useState(config?.project.workspace_slug || '');
   const [projects, setProjects] = useState<Project[]>(config ? [config.project] : []);
-  const [projectRef, setProjectRef] = useState(config?.project.plane_project_ref || '');
+  const [projectRef, setProjectRef] = useState(config?.project.plane_project_document_id || '');
   const [projectUrl, setProjectUrl] = useState('');
   const [connection, setConnection] = useState('');
-  const [scheduleType, setScheduleType] = useState(config?.schedule_type || 'INTERVAL');
-  const [intervalValue, setIntervalValue] = useState(config?.interval_value || 30);
-  const [intervalUnit, setIntervalUnit] = useState<'MINUTES' | 'HOURS'>(config?.interval_unit || 'MINUTES');
-  const [frequency, setFrequency] = useState<'DAILY' | 'WEEKLY'>(config?.calendar_frequency || 'WEEKLY');
-  const [calendarInterval, setCalendarInterval] = useState(config?.calendar_interval || 1);
-  const [days, setDays] = useState<string[]>(config?.calendar_days_of_week || ['MONDAY']);
-  const [calendarTime, setCalendarTime] = useState(config?.calendar_time_of_day?.slice(0, 5) || '09:00');
+  const [scheduleType, setScheduleType] = useState(config?.schedule.type || 'INTERVAL');
+  const [intervalValue, setIntervalValue] = useState(config?.schedule.type === 'INTERVAL' ? config.schedule.interval.value : 30);
+  const [intervalUnit, setIntervalUnit] = useState<'MINUTES' | 'HOURS'>(config?.schedule.type === 'INTERVAL' ? config.schedule.interval.unit : 'MINUTES');
+  const [frequency, setFrequency] = useState<'DAILY' | 'WEEKLY'>(config?.schedule.type === 'CALENDAR' ? config.schedule.calendar.frequency : 'WEEKLY');
+  const [calendarInterval, setCalendarInterval] = useState(config?.schedule.type === 'CALENDAR' ? config.schedule.calendar.interval : 1);
+  const [days, setDays] = useState<string[]>(config ? config.schedule.type === 'CALENDAR' ? config.schedule.calendar.days_of_week : [] : ['MONDAY']);
+  const [calendarTime, setCalendarTime] = useState(config?.schedule.type === 'CALENDAR' ? config.schedule.calendar.time_of_day.slice(0, 5) : '09:00');
   const [status, setStatus] = useState<ConfigStatus>(config?.status || 'ACTIVE');
-  const [startAt, setStartAt] = useState(toUtcInput(config?.start_at));
-  const [endAt, setEndAt] = useState(toUtcInput(config?.end_at));
+  const [startAt, setStartAt] = useState(toUtcInput(config?.schedule.start_at));
+  const [endAt, setEndAt] = useState(toUtcInput(config?.schedule.end_at));
   const [saving, setSaving] = useState(false);
   const [calendarDaysError, setCalendarDaysError] = useState('');
   const invalidWeeklySchedule = scheduleType === 'CALENDAR' && frequency === 'WEEKLY' && days.length === 0;
@@ -561,7 +561,7 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
     try {
       const response = await api.refreshProjects(workspaceSlug.trim());
       setProjects(response.projects);
-      setProjectRef((current) => response.projects.some((project) => project.plane_project_ref === current) ? current : '');
+      setProjectRef((current) => response.projects.some((project) => project.plane_project_document_id === current) ? current : '');
       notify('success', `${response.projects.length} project${response.projects.length === 1 ? '' : 's'} loaded.`);
     } catch (error) { notify('error', errorText(error)); }
   }
@@ -570,8 +570,8 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
     if (!projectUrl.trim()) return notify('error', 'Paste a Plane project URL first.');
     try {
       const project = await api.resolveProject(projectUrl.trim());
-      setProjects((current) => [...current.filter((item) => item.plane_project_ref !== project.plane_project_ref), project]);
-      setProjectRef(project.plane_project_ref);
+      setProjects((current) => [...current.filter((item) => item.plane_project_document_id !== project.plane_project_document_id), project]);
+      setProjectRef(project.plane_project_document_id);
       setWorkspaceSlug(project.workspace_slug);
       notify('success', `Project found: ${project.name}`);
     } catch (error) { notify('error', errorText(error)); }
@@ -586,19 +586,19 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
     setCalendarDaysError('');
     if (mode === 'create' && !projectRef) return notify('error', 'Select or resolve a Plane project first.');
     setSaving(true);
-    const schedule: SchedulePayload = scheduleType === 'INTERVAL' ? {
-      schedule_type: 'INTERVAL', interval_value: Number(intervalValue), interval_unit: intervalUnit,
-      calendar_frequency: null, calendar_interval: null, calendar_days_of_week: [], calendar_time_of_day: null,
+    const schedule: SyncSchedule = scheduleType === 'INTERVAL' ? {
+      type: 'INTERVAL', interval: { value: Number(intervalValue), unit: intervalUnit }, calendar: null,
       start_at: fromUtcInput(startAt), end_at: fromUtcInput(endAt),
     } : {
-      schedule_type: 'CALENDAR', interval_value: null, interval_unit: null,
-      calendar_frequency: frequency, calendar_interval: Number(calendarInterval),
-      calendar_days_of_week: frequency === 'WEEKLY' ? days : [], calendar_time_of_day: `${calendarTime}:00`,
+      type: 'CALENDAR', interval: null, calendar: {
+        frequency, interval: Number(calendarInterval),
+        days_of_week: frequency === 'WEEKLY' ? days : [], time_of_day: `${calendarTime}:00`,
+      },
       start_at: fromUtcInput(startAt), end_at: fromUtcInput(endAt),
     };
-    const settings = { ...schedule, status, sync_options: { work_items: true, pages: false } };
+    const settings = { schedule, status, sync_options: { work_items: true, pages: false } };
     try {
-      if (mode === 'create') await api.createConfig({ ...settings, plane_project_ref: projectRef });
+      if (mode === 'create') await api.createConfig({ ...settings, plane_project_document_id: projectRef });
       else if (config) await api.updateConfig(config.config_id, settings);
       onSaved();
     } catch (error) { notify('error', errorText(error)); }
@@ -615,7 +615,7 @@ function ConfigEditor({ mode, config, onClose, onSaved, notify }: {
     {mode === 'create' && <section className="form-section"><div className="section-title"><span className="section-number">01</span><div><b>Source workspace and project</b><small>Choose a workspace, then select the project to sync.</small></div></div>
       <div className="connection-row"><button type="button" data-tooltip="Check the configured Plane API connection." className="button button-secondary" onClick={() => void testConnection()}>Test Plane connection <span>↗</span></button><span className={`connection-result ${connectionIsValid ? 'ok' : ''}`}>{connection || 'Uses the server-side connection'}</span></div>
       <div className="form-grid project-lookup"><label className="field"><span>Workspace slug</span><div className="input-with-button"><input value={workspaceSlug} onChange={(event) => setWorkspaceSlug(event.target.value)} placeholder="e.g. acme" /><button type="button" data-tooltip="Load projects from this workspace." className="button button-secondary button-small" onClick={() => void loadProjects()}>Load projects</button></div><small>The slug is the workspace identifier in its Plane URL, for example app.plane.so/<b>acme</b>/projects.</small></label><label className="field"><span>Or paste a project URL</span><div className="input-with-button"><input value={projectUrl} onChange={(event) => setProjectUrl(event.target.value)} placeholder="https://app.plane.so/acme/projects/…" /><button type="button" data-tooltip="Find the workspace and project from this URL." className="button button-secondary button-small" onClick={() => void resolveUrl()}>Resolve</button></div><small>The project URL identifies both the source workspace and project.</small></label></div>
-      <label className="field project-select"><span>Source project</span><select value={projectRef} onChange={(event) => setProjectRef(event.target.value)}><option value="">Select a project…</option>{projects.filter((project) => project.is_available && !project.is_archived).map((project) => <option key={project.plane_project_ref} value={project.plane_project_ref}>{project.name} · Workspace slug: {project.workspace_slug} · Project identifier: {project.identifier}</option>)}</select></label>
+      <label className="field project-select"><span>Source project</span><select value={projectRef} onChange={(event) => setProjectRef(event.target.value)}><option value="">Select a project…</option>{projects.filter((project) => project.is_available && !project.is_archived).map((project) => <option key={project.plane_project_document_id} value={project.plane_project_document_id}>{project.name} · Workspace slug: {project.workspace_slug} · Project identifier: {project.identifier}</option>)}</select></label>
     </section>}
     {mode === 'edit' && config && <section className="form-section existing-project"><ProjectMark name={config.project.name} /><div><b>{config.project.name}</b><ProjectSourceMeta project={config.project} /></div><StatusPill status={config.status} /></section>}
     <section className="form-section"><div className="section-title"><span className="section-number">02</span><div><b>Sync options</b><small>Choose the Plane data copied to Notion.</small></div></div><div className="option-cards"><label className="option-card chosen"><input type="checkbox" checked readOnly /><span className="option-check">✓</span><span><b>Work items</b><small>Active, non-draft tasks, status, priority, labels and dates</small></span><span className="option-state">INCLUDED</span></label><div className="option-card disabled"><span className="empty-check" /><span><b>Pages</b><small>Project pages and documentation</small></span><span className="option-state">COMING LATER</span></div></div></section>
@@ -680,14 +680,14 @@ function Modal({ children, onClose, wide = false, stickyFooter = false }: { chil
 }
 
 function scheduleLabel(config: SyncConfig) {
-  if (config.schedule_type === 'INTERVAL') return `Every ${config.interval_value} ${config.interval_unit?.toLowerCase() || 'minutes'}`;
-  const days = config.calendar_days_of_week?.map((day) => day.slice(0, 3)).join(', ');
-  let repeatLabel = `Every ${config.calendar_interval} day${config.calendar_interval === 1 ? '' : 's'}`;
-  if (config.calendar_frequency === 'WEEKLY') {
-    repeatLabel = `Every ${config.calendar_interval} week${config.calendar_interval === 1 ? '' : 's'}`;
+  if (config.schedule.type === 'INTERVAL') return `Every ${config.schedule.interval.value} ${config.schedule.interval.unit.toLowerCase()}`;
+  const days = config.schedule.calendar.days_of_week.map((day) => day.slice(0, 3)).join(', ');
+  let repeatLabel = `Every ${config.schedule.calendar.interval} day${config.schedule.calendar.interval === 1 ? '' : 's'}`;
+  if (config.schedule.calendar.frequency === 'WEEKLY') {
+    repeatLabel = `Every ${config.schedule.calendar.interval} week${config.schedule.calendar.interval === 1 ? '' : 's'}`;
     if (days) repeatLabel += ` · ${days}`;
   }
-  const time = config.calendar_time_of_day?.slice(0, 5) || '09:00';
+  const time = config.schedule.calendar.time_of_day.slice(0, 5) || '09:00';
   return `${repeatLabel} · ${time} UTC`;
 }
 

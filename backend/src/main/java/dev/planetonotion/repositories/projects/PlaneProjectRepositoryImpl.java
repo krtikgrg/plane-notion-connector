@@ -22,17 +22,17 @@ public class PlaneProjectRepositoryImpl implements PlaneProjectRepositoryCustom 
         BulkOperations operations = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, PlaneProjectDocument.class);
         projects.forEach(project -> {
             Query query = Query.query(new Criteria().andOperator(
-                    Criteria.where("workspace_slug").is(project.workspaceSlug()),
-                    Criteria.where("project_id").is(project.projectId())));
+                    Criteria.where("planeWorkspaceSlug").is(project.planeWorkspaceSlug()),
+                    Criteria.where("planeProjectId").is(project.planeProjectId())));
             Update update = new Update()
-                    .set("name", project.name())
-                    .set("identifier", project.identifier())
-                    .set("is_archived", project.isArchived())
+                    .set("planeProjectName", project.planeProjectName())
+                    .set("planeProjectIdentifier", project.planeProjectIdentifier())
+                    .set("isArchivedInPlane", project.isArchivedInPlane())
                     .set("is_available", project.isAvailable())
-                    .set("last_refreshed_at", project.lastRefreshedAt())
                     .set("updated_at", project.updatedAt())
-                    .setOnInsert("workspace_slug", project.workspaceSlug())
-                    .setOnInsert("project_id", project.projectId())
+                    .unset("last_refreshed_at")
+                    .setOnInsert("planeWorkspaceSlug", project.planeWorkspaceSlug())
+                    .setOnInsert("planeProjectId", project.planeProjectId())
                     .setOnInsert("created_at", project.createdAt());
             operations.upsert(query, update);
         });

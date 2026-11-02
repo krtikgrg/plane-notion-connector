@@ -8,9 +8,11 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface PlaneProjectRepository extends MongoRepository<PlaneProjectDocument, ObjectId>, PlaneProjectRepositoryCustom {
 
-    List<PlaneProjectDocument> findByWorkspaceSlug(String workspaceSlug);
+    List<PlaneProjectDocument> findByPlaneWorkspaceSlug(String planeWorkspaceSlug);
 
-    List<PlaneProjectDocument> findByWorkspaceSlugAndIsAvailableTrueAndIsArchivedFalseOrderByNameAsc(String workspaceSlug);
+    List<PlaneProjectDocument> findByPlaneWorkspaceSlugAndIsAvailableTrueAndIsArchivedInPlaneFalseOrderByPlaneProjectNameAsc(
+            String planeWorkspaceSlug);
 
-    Optional<PlaneProjectDocument> findByWorkspaceSlugAndProjectId(String workspaceSlug, String projectId);
+    Optional<PlaneProjectDocument> findByPlaneWorkspaceSlugAndPlaneProjectId(String planeWorkspaceSlug,
+            String planeProjectId);
 }

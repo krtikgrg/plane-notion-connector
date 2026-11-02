@@ -12,7 +12,7 @@ import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.mappings.SyncMappingRepository;
@@ -67,14 +67,14 @@ class AdHocSyncFlowTest {
                  "priority":"low","target_date":"","updated_at":"2026-10-31T10:00:00Z",
                  "description_html":"","assignees":[],"labels":[]}
                 """));
-        when(projectRepository.findByWorkspaceSlugAndProjectId("workspace", "plane-project"))
+        when(projectRepository.findByPlaneWorkspaceSlugAndPlaneProjectId("workspace", "plane-project"))
                 .thenReturn(Optional.of(project));
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(configRepository.findByPlaneProjectRef(projectRef)).thenReturn(Optional.empty());
+        when(configRepository.findByPlaneProjectDocumentId(projectRef)).thenReturn(Optional.empty());
         when(adHocDestinationService.getOrCreate()).thenReturn(new AdHocNotionDestinationDocument(
                 AdHocNotionDestinationDocument.SHARED_DESTINATION_ID, "adhoc-page", "adhoc-database",
                 AD_HOC_DATA_SOURCE_ID, Instant.now(), Instant.now()));
-        when(mappingRepository.findByTargetDataSourceIdAndSourceId(AD_HOC_DATA_SOURCE_ID, "item-9"))
+        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemId(AD_HOC_DATA_SOURCE_ID, "item-9"))
                 .thenReturn(Optional.empty());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-9\"}"));
         when(planeService.workItemUrl("workspace", "plane-project", "item-9"))
@@ -104,29 +104,23 @@ class AdHocSyncFlowTest {
         ArgumentCaptor<SyncJobDocument> saved = ArgumentCaptor.forClass(SyncJobDocument.class);
         org.mockito.Mockito.verify(jobRepository, org.mockito.Mockito.times(2)).save(saved.capture());
         SyncJobDocument finished = saved.getAllValues().get(1);
-        assertThat(finished.status()).isEqualTo(SyncJobStatus.SUCCESS);
+        assertThat(finished.jobStatus()).isEqualTo(SyncJobStatus.SUCCESS);
         assertThat(finished.configId()).isNull();
-        assertThat(finished.createdCount()).isEqualTo(1);
+        assertThat(finished.result().createdNotionPagesCount()).isEqualTo(1);
         verify(adHocDestinationService).getOrCreate();
         verify(notionClient).ensureWorkItemOptions(AD_HOC_DATA_SOURCE_ID, List.of("Done"), List.of());
         ArgumentCaptor<List<SyncMappingDocument>> mappings = ArgumentCaptor.forClass(List.class);
         verify(mappingRepository, org.mockito.Mockito.times(2)).bulkUpsert(mappings.capture());
         List<SyncMappingDocument> completedMappings = mappings.getAllValues().getLast();
-        assertThat(completedMappings.getFirst().targetDataSourceId()).isEqualTo(AD_HOC_DATA_SOURCE_ID);
-        assertThat(completedMappings.getFirst().sourceHash()).isNotBlank();
+        assertThat(completedMappings.getFirst().notionDataSourceId()).isEqualTo(AD_HOC_DATA_SOURCE_ID);
+        assertThat(completedMappings.getFirst().planeSourceHash()).isNotBlank();
     }
 
     private SyncJobDocument withId(SyncJobDocument job, ObjectId id) {
-        return new SyncJobDocument(id, job.triggerType(), job.syncScope(), job.status(), job.configId(),
-                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
-                job.scheduledFor(), job.startedAt(), job.finishedAt(), job.attemptCount(), job.fetchedCount(), job.eligibleCount(),
-                job.createdCount(), job.updatedCount(), job.unchangedCount(), job.failedCount(), job.errorCode(),
-                job.errorMessage(), job.createdAt(), job.updatedAt());
+        return TestData.withJobId(job, id);
     }
 
     private SyncJobDocument withStatus(SyncJobDocument job, SyncJobStatus status) {
-        return new SyncJobDocument(job.id(), job.triggerType(), job.syncScope(), status, job.configId(),
-                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
-                job.scheduledFor(), Instant.now(), null, 1, 0, 0, 0, 0, 0, 0, null, null, job.createdAt(), Instant.now());
+        return TestData.withStatus(job, status);
     }
 }

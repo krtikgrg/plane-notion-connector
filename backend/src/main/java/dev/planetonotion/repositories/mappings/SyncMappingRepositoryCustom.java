@@ -9,5 +9,5 @@ public interface SyncMappingRepositoryCustom {
 
     void bulkUpsert(List<SyncMappingDocument> mappings);
 
-    Map<String, Long> countByTargetDataSourceIds(Collection<String> dataSourceIds);
+    Map<String, Long> countByNotionDataSourceIds(Collection<String> notionDataSourceIds);
 }

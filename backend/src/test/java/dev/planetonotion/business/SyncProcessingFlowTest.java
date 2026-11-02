@@ -11,6 +11,7 @@ import static org.mockito.Mockito.doAnswer;
 
 import dev.planetonotion.TestData;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
@@ -18,8 +19,9 @@ import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.configs.SyncSchedule;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.mappings.SyncMappingRepository;
@@ -66,7 +68,7 @@ class SyncProcessingFlowTest {
         ObjectId jobId = new ObjectId();
         Instant previousProjectRunStart = Instant.parse("2026-10-30T10:00:00Z");
         SyncConfigDocument config = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
-                ScheduleType.INTERVAL, 30, "MINUTES", null, null);
+                ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         PlaneProjectDocument project = TestData.project(projectRef, "workspace", "plane-project");
         when(configRepository.findById(configId)).thenReturn(Optional.of(config));
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
@@ -76,15 +78,14 @@ class SyncProcessingFlowTest {
         when(jobRepository.save(any())).thenAnswer(invocation -> {
             SyncJobDocument job = invocation.getArgument(0);
             SyncJobDocument saved = job.id() == null ? withId(job, jobId) : job;
-            if (saved.status() == SyncJobStatus.PENDING && saved.triggerType() == SyncJobType.MANUAL) queued.set(saved);
+            if (saved.jobStatus() == SyncJobStatus.PENDING && saved.jobType() == SyncJobType.MANUAL) queued.set(saved);
             return saved;
         });
         when(jobRepository.claimNextDueJob(any())).thenAnswer(invocation -> Optional.of(withStatus(
                 queued.get(), SyncJobStatus.RUNNING)));
         when(jobRepository.findLatestSuccessfulProjectSyncStart(configId))
                 .thenReturn(Optional.of(previousProjectRunStart));
-        when(jobRepository.findByConfigIdAndTriggerTypeAndStatusOrderByScheduledForAsc(
-                configId, SyncJobType.SCHEDULED, SyncJobStatus.PENDING)).thenReturn(List.of());
+        when(jobRepository.findPendingScheduledJobs(configId)).thenReturn(List.of());
 
         when(planeService.listWorkItemStates("workspace", "plane-project"))
                 .thenReturn(List.of(TestData.json("{\"id\":\"state-1\",\"name\":\"Todo\"}")));
@@ -101,10 +102,10 @@ class SyncProcessingFlowTest {
         when(planeService.listWorkItemLabels("workspace", "plane-project")).thenReturn(List.of());
         when(planeService.workItemUrl("workspace", "plane-project", "item-1"))
                 .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-1");
-        when(mappingRepository.findByTargetDataSourceIdAndSourceIdIn("notion-data-source", List.of("item-1")))
+        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn("notion-data-source", List.of("item-1")))
                 .thenReturn(List.of());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-1\"}"));
-        org.mockito.Mockito.doNothing().when(notionHierarchyService).synchronizeProjectPage(project, config);
+        org.mockito.Mockito.doNothing().when(notionHierarchyService).synchronizeProjectPage(project);
 
         ScheduleService scheduleService = new ScheduleService(jobRepository);
         WorkItemSyncService workItemSyncService = new WorkItemSyncService(planeService, notionClient, mappingRepository);
@@ -115,22 +116,20 @@ class SyncProcessingFlowTest {
                 planeService, TestData.integrationProperties());
 
         SyncJobDocument queuedJob = jobService.enqueueProject(configId, false);
-        assertThat(queuedJob.status()).isEqualTo(SyncJobStatus.PENDING);
+        assertThat(queuedJob.jobStatus()).isEqualTo(SyncJobStatus.PENDING);
         worker.claimAndRunOne();
 
         ArgumentCaptor<List<SyncMappingDocument>> mapping = ArgumentCaptor.forClass(List.class);
         verify(mappingRepository, times(2)).bulkUpsert(mapping.capture());
         List<dev.planetonotion.models.documents.SyncMappingDocument> completedMappings = mapping.getAllValues().getLast();
-        assertThat(completedMappings.getFirst().sourceId()).isEqualTo("item-1");
-        assertThat(completedMappings.getFirst().targetId()).isEqualTo("notion-page-1");
+        assertThat(completedMappings.getFirst().planeWorkItemId()).isEqualTo("item-1");
+        assertThat(completedMappings.getFirst().notionPageId()).isEqualTo("notion-page-1");
         ArgumentCaptor<SyncJobDocument> savedJobs = ArgumentCaptor.forClass(SyncJobDocument.class);
         verify(jobRepository, times(2)).save(savedJobs.capture());
         SyncJobDocument complete = savedJobs.getAllValues().get(1);
-        assertThat(complete.status()).isEqualTo(SyncJobStatus.SUCCESS);
-        assertThat(complete.fetchedCount()).isEqualTo(1);
-        assertThat(complete.eligibleCount()).isEqualTo(1);
-        assertThat(complete.createdCount()).isEqualTo(1);
-        assertThat(complete.failedCount()).isZero();
+        assertThat(complete.jobStatus()).isEqualTo(SyncJobStatus.SUCCESS);
+        assertThat(complete.result().eligiblePlaneWorkItemsCount()).isEqualTo(1);
+        assertThat(complete.result().createdNotionPagesCount()).isEqualTo(1);
         verify(notionClient).ensureWorkItemOptions("notion-data-source", List.of("Todo"), List.of());
         ArgumentCaptor<Instant> lowerBound = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> upperBound = ArgumentCaptor.forClass(Instant.class);
@@ -141,17 +140,10 @@ class SyncProcessingFlowTest {
     }
 
     private SyncJobDocument withId(SyncJobDocument job, ObjectId id) {
-        return new SyncJobDocument(id, job.triggerType(), job.syncScope(), job.status(), job.configId(),
-                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
-                job.scheduledFor(), job.startedAt(), job.finishedAt(), job.attemptCount(), job.fetchedCount(), job.eligibleCount(),
-                job.createdCount(), job.updatedCount(), job.unchangedCount(), job.failedCount(), job.errorCode(),
-                job.errorMessage(), job.createdAt(), job.updatedAt());
+        return TestData.withJobId(job, id);
     }
 
     private SyncJobDocument withStatus(SyncJobDocument job, SyncJobStatus status) {
-        return new SyncJobDocument(job.id(), job.triggerType(), job.syncScope(), status, job.configId(),
-                job.planeProjectRef(), job.requestedTaskUrl(), job.workItemId(), job.forceArchivedConfig(),
-                job.scheduledFor(), Instant.now(), null, 1, 0, 0, 0, 0, 0, 0, null, null,
-                job.createdAt(), Instant.now());
+        return TestData.withStatus(job, status);
     }
 }

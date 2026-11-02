@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import java.time.Instant;
 import java.util.List;
 import org.bson.types.ObjectId;
@@ -38,7 +38,7 @@ class SyncJobRepositoryImplTest {
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         verify(mongoTemplate).find(query.capture(), eq(SyncJobDocument.class));
         String filter = query.getValue().getQueryObject().toString();
-        assertThat(filter).contains("config_id", "status", "SUCCESS", "trigger_type", "MANUAL", "created_at", "$gte", "$lt");
+        assertThat(filter).contains("config_id", "job_status", "SUCCESS", "job_type", "MANUAL", "created_at", "$gte", "$lt");
         assertThat(query.getValue().getSortObject().get("_id")).isEqualTo(-1);
         assertThat(query.getValue().getLimit()).isEqualTo(21);
     }

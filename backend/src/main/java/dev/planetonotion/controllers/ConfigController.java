@@ -5,16 +5,17 @@ import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.MongoIdParser;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.ApiDtos.ConfigResponse;
-import dev.planetonotion.models.ApiDtos.CreateConfigRequest;
+import dev.planetonotion.models.ApiDtos.UpsertConfigRequest;
 import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
 import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
 import dev.planetonotion.models.ApiDtos.ManualProjectSyncRequest;
 import dev.planetonotion.models.ApiDtos.ProjectResponse;
-import dev.planetonotion.models.ApiDtos.UpdateConfigRequest;
 import dev.planetonotion.services.ConfigService;
 import dev.planetonotion.services.ProjectCatalogService;
 import dev.planetonotion.services.sync.SyncJobService;
@@ -57,19 +58,17 @@ public class ConfigController {
     public List<ConfigResponse> list() {
         List<SyncConfigDocument> configs = configService.list();
         Map<ObjectId, PlaneProjectDocument> projectsById = projectCatalogService.findAllById(
-                configs.stream().map(SyncConfigDocument::planeProjectRef).distinct().toList())
+                configs.stream().map(SyncConfigDocument::planeProjectDocumentId).distinct().toList())
                 .stream().collect(Collectors.toMap(PlaneProjectDocument::id, Function.identity()));
-        return configs.stream().map(config -> toResponse(config, projectsById.get(config.planeProjectRef()))).toList();
+        return configs.stream().map(config -> toResponse(config, projectsById.get(config.planeProjectDocumentId()))).toList();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ConfigResponse create(@Valid @RequestBody CreateConfigRequest request) {
+    public ConfigResponse create(@Valid @RequestBody UpsertConfigRequest request) {
         return toResponse(configService.create(new ConfigService.ConfigInput(
-                MongoIdParser.required(request.planeProjectRef(), "plane_project_ref"), request.status(),
-                request.syncOptions(), request.scheduleType(), request.intervalValue(), request.intervalUnit(),
-                request.calendarFrequency(), request.calendarInterval(), request.calendarDaysOfWeek(),
-                request.calendarTimeOfDay(), request.startAt(), request.endAt())));
+                MongoIdParser.required(request.planeProjectDocumentId(), "plane_project_document_id"), request.status(),
+                request.syncOptions(), request.schedule())));
     }
 
     @GetMapping("/{config_id}")
@@ -79,12 +78,9 @@ public class ConfigController {
 
     @PatchMapping("/{config_id}")
     public ConfigResponse update(@PathVariable("config_id") String configId,
-            @Valid @RequestBody UpdateConfigRequest request) {
+            @Valid @RequestBody UpsertConfigRequest request) {
         return toResponse(configService.update(MongoIdParser.required(configId, "config_id"),
-                new ConfigService.ConfigInput(null, request.status(), request.syncOptions(), request.scheduleType(),
-                        request.intervalValue(), request.intervalUnit(), request.calendarFrequency(),
-                        request.calendarInterval(), request.calendarDaysOfWeek(), request.calendarTimeOfDay(),
-                        request.startAt(), request.endAt())));
+                new ConfigService.ConfigInput(null, request.status(), request.syncOptions(), request.schedule())));
     }
 
     @PostMapping("/{config_id}/sync-jobs")
@@ -97,47 +93,49 @@ public class ConfigController {
 
     @GetMapping("/{config_id}/sync-jobs")
     public JobHistoryResponse listConfigRuns(@PathVariable("config_id") String configId,
-            @RequestParam(required = false) SyncJobStatus status,
-            @RequestParam(required = false, name = "trigger_type") SyncJobType triggerType,
+            @RequestParam(required = false, name = "job_status") SyncJobStatus jobStatus,
+            @RequestParam(required = false, name = "job_type") SyncJobType jobType,
             @RequestParam(required = false, name = "created_from") Instant createdFrom,
             @RequestParam(required = false, name = "created_to") Instant createdTo,
             @RequestParam(required = false, name = "before_id") String beforeId,
             @RequestParam(defaultValue = "20", name = "page_size") int pageSize) {
         validatePageSize(pageSize);
         ObjectId id = MongoIdParser.required(configId, "config_id");
-        var page = syncJobService.list(id, status, triggerType, createdFrom, createdTo,
+        var page = syncJobService.list(id, jobStatus, jobType, createdFrom, createdTo,
                 MongoIdParser.optional(beforeId, "before_id"), pageSize);
         return new JobHistoryResponse(page.items().stream().map(this::toJobResponse).toList(), page.nextBeforeId());
     }
 
     private ConfigResponse toResponse(SyncConfigDocument config) {
-        return toResponse(config, projectCatalogService.findById(config.planeProjectRef()));
+        return toResponse(config, projectCatalogService.findById(config.planeProjectDocumentId()));
     }
 
     private ConfigResponse toResponse(SyncConfigDocument config, PlaneProjectDocument project) {
-        if (project == null) project = projectCatalogService.findById(config.planeProjectRef());
-        ProjectResponse projectResponse = new ProjectResponse(project.id().toHexString(), project.workspaceSlug(),
-                project.projectId(), project.name(), project.identifier(),
-                planeService.projectUrl(project.workspaceSlug(), project.projectId()),
-                project.isArchived(), project.isAvailable(), project.lastRefreshedAt());
+        if (project == null) project = projectCatalogService.findById(config.planeProjectDocumentId());
+        ProjectResponse projectResponse = new ProjectResponse(project.id().toHexString(), project.planeWorkspaceSlug(),
+                project.planeProjectId(), project.planeProjectName(), project.planeProjectIdentifier(),
+                planeService.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
+                project.isArchivedInPlane(), project.isAvailable());
         return new ConfigResponse(config.id().toHexString(), config.status(), projectResponse,
-                config.notionProjectPageId(), config.notionDatabaseId(), config.notionDataSourceId(),
-                config.syncOptions(), config.scheduleType(), config.intervalValue(), config.intervalUnit(),
-                config.calendarFrequency(), config.calendarInterval(), config.calendarDaysOfWeek(),
-                config.calendarTimeOfDay(), config.startAt(), config.endAt(), config.createdAt(), config.updatedAt());
+                project.notionProjectPageId(), project.notionDatabaseId(), project.notionDataSourceId(),
+                config.syncOptions(), config.schedule(), config.createdAt(), config.updatedAt());
     }
 
     private EnqueuedJobResponse toEnqueuedResponse(SyncJobDocument job) {
-        return new EnqueuedJobResponse(job.id().toHexString(), job.status(), job.createdAt());
+        return new EnqueuedJobResponse(job.id().toHexString(), job.jobStatus(), job.createdAt());
     }
 
     private JobResponse toJobResponse(SyncJobDocument job) {
-        return new JobResponse(job.id().toHexString(), job.triggerType(), job.syncScope(), job.status(),
+        var planeWorkItem = job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null
+                ? new dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse(
+                        manual.planeWorkItem().taskUrl(), manual.planeWorkItem().workItemId())
+                : null;
+        var scheduledFor = job instanceof ScheduledSyncJobDocument scheduled ? scheduled.scheduledFor() : null;
+        return new JobResponse(job.id().toHexString(), job.jobType(), job.scope(), job.jobStatus(),
                 job.configId() == null ? null : job.configId().toHexString(),
-                job.planeProjectRef() == null ? null : job.planeProjectRef().toHexString(),
-                job.requestedTaskUrl(), job.workItemId(), job.scheduledFor(), job.startedAt(), job.finishedAt(),
-                job.attemptCount(), job.fetchedCount(), job.eligibleCount(), job.createdCount(), job.updatedCount(),
-                job.unchangedCount(), job.failedCount(), job.errorCode(), job.errorMessage(), job.createdAt());
+                job.planeProjectDocumentId() == null ? null : job.planeProjectDocumentId().toHexString(),
+                planeWorkItem, scheduledFor, job.startedAt(), job.finishedAt(), job.attemptCount(), job.result(),
+                job.errorCode(), job.errorMessage(), job.createdAt());
     }
 
     private void validatePageSize(int pageSize) {

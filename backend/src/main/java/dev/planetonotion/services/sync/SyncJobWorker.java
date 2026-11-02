@@ -5,9 +5,12 @@ import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
+import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
@@ -63,15 +66,13 @@ public class SyncJobWorker {
         try {
             WorkItemSyncService.SyncResult result = execute(job, progress);
             Instant finishedAt = Instant.now();
-            jobRepository.save(copy(job, SyncJobStatus.SUCCESS, finishedAt, result.eligibleCount(), result.eligibleCount(),
-                    result.createdCount(), result.updatedCount(), result.unchangedCount(), 0, null, null));
+            jobRepository.save(copy(job, SyncJobStatus.SUCCESS, finishedAt, toJobResult(result), null, null));
         } catch (Exception exception) {
             Instant finishedAt = Instant.now();
             ErrorDetails error = errorDetails(exception);
             WorkItemSyncService.SyncResult partial = progress.get();
-            jobRepository.save(copy(job, SyncJobStatus.FAILED, finishedAt, partial.eligibleCount(),
-                    partial.eligibleCount(), partial.createdCount(), partial.updatedCount(),
-                    partial.unchangedCount(), 1, error.code(), error.message()));
+            jobRepository.save(copy(job, SyncJobStatus.FAILED, finishedAt, toJobResult(partial),
+                    error.code(), error.message()));
             LOGGER.warn("Sync job {} failed with {} ({})", job.id(), error.code(),
                     exception.getClass().getSimpleName());
         }
@@ -81,33 +82,34 @@ public class SyncJobWorker {
 
     private WorkItemSyncService.SyncResult execute(SyncJobDocument job,
             AtomicReference<WorkItemSyncService.SyncResult> progress) {
-        if (job.planeProjectRef() == null) {
+        if (job.planeProjectDocumentId() == null) {
             throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING", "A sync destination is required.");
         }
-        PlaneProjectDocument project = projectRepository.findById(job.planeProjectRef())
+        PlaneProjectDocument project = projectRepository.findById(job.planeProjectDocumentId())
                 .orElseThrow(() -> new ServiceException(org.springframework.http.HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The Plane project was not found."));
         if (job.configId() == null) {
-            if (job.syncScope() != dev.planetonotion.common.PlaneToNotionEnums.SyncScope.WORK_ITEM) {
+            if (job.scope() != dev.planetonotion.common.PlaneToNotionEnums.SyncScope.WORK_ITEM) {
                 throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "SYNC_DESTINATION_MISSING", "A sync destination is required.");
             }
             var destination = adHocDestinationService.getOrCreate();
-            return workItemSyncService.syncOneAdHoc(project, job.workItemId(), destination.notionDataSourceId(), progress::set);
+            return workItemSyncService.syncOneAdHoc(project, workItemId(job), destination.notionDataSourceId(), progress::set);
         }
         SyncConfigDocument config = configRepository.findById(job.configId())
                 .orElseThrow(() -> new ServiceException(org.springframework.http.HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND", "The sync config was not found."));
-        if (job.triggerType() == SyncJobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
-                && !job.forceArchivedConfig()) {
+        boolean forceArchivedConfig = job instanceof ManualSyncJobDocument manual && manual.forceArchivedConfig();
+        if (job.jobType() == SyncJobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
+                && !forceArchivedConfig) {
             throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "CONFIG_ARCHIVED", "Enable force run on archived config to continue.");
         }
         project = projectCatalogService.refreshProject(project.id());
-        notionHierarchyService.synchronizeProjectPage(project, config);
-        if (job.syncScope() == dev.planetonotion.common.PlaneToNotionEnums.SyncScope.PROJECT) {
+        notionHierarchyService.synchronizeProjectPage(project);
+        if (job.scope() == dev.planetonotion.common.PlaneToNotionEnums.SyncScope.PROJECT) {
             Instant upperCutoff = job.startedAt() == null ? Instant.now() : job.startedAt();
             Instant checkpoint = jobRepository.findLatestSuccessfulProjectSyncStart(config.id())
                     .map(startedAt -> startedAt.minus(CHECKPOINT_OVERLAP)).orElse(null);
-            return workItemSyncService.syncProject(project, config, checkpoint, upperCutoff, progress::set);
+            return workItemSyncService.syncProject(project, checkpoint, upperCutoff, progress::set);
         }
-        return workItemSyncService.syncOne(config, project, job.workItemId(), progress::set);
+        return workItemSyncService.syncOne(project, workItemId(job), progress::set);
     }
 
     private void scheduleFollowing(SyncJobDocument finishedJob) {
@@ -120,12 +122,33 @@ public class SyncJobWorker {
         }
     }
 
-    private SyncJobDocument copy(SyncJobDocument old, SyncJobStatus status, Instant finishedAt, int fetched,
-            int eligible, int created, int updated, int unchanged, int failed, String errorCode, String errorMessage) {
-        return new SyncJobDocument(old.id(), old.triggerType(), old.syncScope(), status, old.configId(),
-                old.planeProjectRef(), old.requestedTaskUrl(), old.workItemId(), old.forceArchivedConfig(),
-                old.scheduledFor(), old.startedAt(), finishedAt, old.attemptCount(), fetched, eligible, created, updated,
-                unchanged, failed, errorCode, errorMessage, old.createdAt(), finishedAt);
+    private SyncJobDocument copy(SyncJobDocument old, SyncJobStatus status, Instant finishedAt,
+            SyncJobResult result, String errorCode, String errorMessage) {
+        if (old instanceof ManualSyncJobDocument manual) {
+            return new ManualSyncJobDocument(old.id(), old.jobType(), old.scope(), status, old.configId(),
+                    old.planeProjectDocumentId(), manual.planeWorkItem(), manual.forceArchivedConfig(),
+                    old.startedAt(), finishedAt, old.attemptCount(), result, errorCode, errorMessage,
+                    old.createdAt(), finishedAt);
+        }
+        if (old instanceof ScheduledSyncJobDocument scheduled) {
+            return new ScheduledSyncJobDocument(old.id(), old.jobType(), old.scope(), status, old.configId(),
+                    old.planeProjectDocumentId(), scheduled.scheduledFor(), old.startedAt(), finishedAt,
+                    old.attemptCount(), result, errorCode, errorMessage, old.createdAt(), finishedAt);
+        }
+        throw new IllegalArgumentException("Unknown sync job subtype: " + old.getClass().getName());
+    }
+
+    private String workItemId(SyncJobDocument job) {
+        if (job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null) {
+            return manual.planeWorkItem().workItemId();
+        }
+        throw new ServiceException(org.springframework.http.HttpStatus.CONFLICT, "WORK_ITEM_REFERENCE_MISSING",
+                "A manual work-item job must include its Plane work-item reference.");
+    }
+
+    private SyncJobResult toJobResult(WorkItemSyncService.SyncResult result) {
+        return new SyncJobResult(result.eligibleCount(), result.createdCount(), result.updatedCount(),
+                result.unchangedCount());
     }
 
     private ErrorDetails errorDetails(Exception exception) {

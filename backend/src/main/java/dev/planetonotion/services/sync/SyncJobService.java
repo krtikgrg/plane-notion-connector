@@ -9,8 +9,11 @@ import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobResult;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.repositories.sync.SyncJobRepository;
@@ -45,8 +48,8 @@ public class SyncJobService {
     public SyncJobDocument enqueueProject(ObjectId configId, boolean forceArchivedConfig) {
         SyncConfigDocument config = config(configId);
         validateArchivedConfig(config, forceArchivedConfig);
-        return saveJob(config, config.planeProjectRef(), SyncJobType.MANUAL, SyncScope.PROJECT,
-                null, null, forceArchivedConfig, null);
+        return saveJob(config, config.planeProjectDocumentId(), SyncScope.PROJECT,
+                null, forceArchivedConfig);
     }
 
     public SyncJobDocument enqueueTask(String taskUrl, ObjectId requestedConfigId, boolean forceArchivedConfig) {
@@ -71,34 +74,36 @@ public class SyncJobService {
         }
 
         PlaneProjectDocument project = findOrCacheProject(taskUrlParts.workspaceSlug(), projectId);
-        SyncConfigDocument config = configRepository.findByPlaneProjectRef(project.id()).orElse(null);
+        SyncConfigDocument config = configRepository.findByPlaneProjectDocumentId(project.id()).orElse(null);
         if (requestedConfigId != null) {
             SyncConfigDocument requested = config(requestedConfigId);
-            if (!requested.planeProjectRef().equals(project.id())) {
+            if (!requested.planeProjectDocumentId().equals(project.id())) {
                 throw new ServiceException(HttpStatus.BAD_REQUEST, "TASK_PROJECT_MISMATCH", "The task URL does not belong to the selected config's project.");
             }
             config = requested;
         }
 
         if (config == null) {
-            return saveJob(null, project.id(), SyncJobType.MANUAL, SyncScope.WORK_ITEM,
-                    taskUrl, workItemId, forceArchivedConfig, null);
+            return saveJob(null, project.id(), SyncScope.WORK_ITEM,
+                    new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
         }
         validateArchivedConfig(config, forceArchivedConfig);
-        return saveJob(config, project.id(), SyncJobType.MANUAL, SyncScope.WORK_ITEM,
-                taskUrl, workItemId, forceArchivedConfig, null);
+        return saveJob(config, project.id(), SyncScope.WORK_ITEM,
+                new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
     }
 
-    public SyncJobRepositoryCustom.JobPage list(ObjectId configId, SyncJobStatus status, SyncJobType triggerType,
+    public SyncJobRepositoryCustom.JobPage list(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize) {
-        return jobRepository.findJobs(configId, status, triggerType, createdFrom, createdTo, beforeId, pageSize);
+        return jobRepository.findJobs(configId, jobStatus, jobType, createdFrom, createdTo, beforeId, pageSize);
     }
 
     public Map<String, Instant> nextScheduledRuns() {
         Map<String, Instant> nextRuns = new LinkedHashMap<>();
         jobRepository.findPendingScheduledJobs().forEach(job -> {
-            if (job.configId() != null && job.scheduledFor() != null) {
-                nextRuns.putIfAbsent(job.configId().toHexString(), job.scheduledFor());
+            if (job instanceof ScheduledSyncJobDocument scheduled
+                    && job.configId() != null && scheduled.scheduledFor() != null) {
+                nextRuns.merge(job.configId().toHexString(), scheduled.scheduledFor(),
+                        (current, candidate) -> candidate.isBefore(current) ? candidate : current);
             }
         });
         return nextRuns;
@@ -110,7 +115,7 @@ public class SyncJobService {
     }
 
     private PlaneProjectDocument findOrCacheProject(String workspaceSlug, String projectId) {
-        return projectRepository.findByWorkspaceSlugAndProjectId(workspaceSlug, projectId).orElseGet(() -> {
+        return projectRepository.findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, projectId).orElseGet(() -> {
             JsonNode source = planeService.getProject(workspaceSlug, projectId);
             Instant now = Instant.now();
             JsonNode archivedAt = source.path("archived_at");
@@ -118,7 +123,7 @@ public class SyncJobService {
                     : source.path("is_archived").asBoolean(false);
             return projectRepository.save(new PlaneProjectDocument(null, workspaceSlug, projectId,
                     source.path("name").asString("Unnamed project"), source.path("identifier").asString(""),
-                    isArchived, true, now, now, now));
+                    isArchived, true, null, null, null, now, now));
         });
     }
 
@@ -133,12 +138,12 @@ public class SyncJobService {
         }
     }
 
-    private SyncJobDocument saveJob(SyncConfigDocument config, ObjectId projectRef, SyncJobType type,
-            SyncScope scope, String requestedTaskUrl, String workItemId, boolean forceArchived, Instant scheduledFor) {
+    private SyncJobDocument saveJob(SyncConfigDocument config, ObjectId projectRef, SyncScope scope,
+            ManualSyncJobDocument.PlaneWorkItemReference planeWorkItem, boolean forceArchived) {
         Instant now = Instant.now();
-        return jobRepository.save(new SyncJobDocument(null, type, scope, SyncJobStatus.PENDING,
-                config == null ? null : config.id(), projectRef, requestedTaskUrl, workItemId, forceArchived,
-                scheduledFor, null, null, 0, 0, 0, 0, 0, 0, 0, null, null, now, now));
+        return jobRepository.save(new ManualSyncJobDocument(null, SyncJobType.MANUAL, scope, SyncJobStatus.PENDING,
+                config == null ? null : config.id(), projectRef, planeWorkItem, forceArchived,
+                null, null, 0, SyncJobResult.empty(), null, null, now, now));
     }
 
     private TaskUrl parseTaskUrl(String value) {

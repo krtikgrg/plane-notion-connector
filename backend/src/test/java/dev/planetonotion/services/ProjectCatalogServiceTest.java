@@ -34,7 +34,7 @@ class ProjectCatalogServiceTest {
         ObjectId staleId = new ObjectId();
         PlaneProjectDocument stale = TestData.project(staleId, "demo-workspace", "stale-project");
         AtomicReference<List<PlaneProjectDocument>> saved = new AtomicReference<>(List.of(stale));
-        when(projectRepository.findByWorkspaceSlug("demo-workspace")).thenReturn(List.of(stale)).thenAnswer(invocation -> saved.get());
+        when(projectRepository.findByPlaneWorkspaceSlug("demo-workspace")).thenReturn(List.of(stale)).thenAnswer(invocation -> saved.get());
         doAnswer(invocation -> {
             Consumer<List<tools.jackson.databind.JsonNode>> pageConsumer = invocation.getArgument(1);
             pageConsumer.accept(List.of(
@@ -45,8 +45,8 @@ class ProjectCatalogServiceTest {
         doAnswer(invocation -> {
             List<PlaneProjectDocument> batch = invocation.getArgument(0);
             Map<String, PlaneProjectDocument> allSaved = new LinkedHashMap<>();
-            saved.get().forEach(project -> allSaved.put(project.projectId(), project));
-            batch.forEach(project -> allSaved.put(project.projectId(), project));
+            saved.get().forEach(project -> allSaved.put(project.planeProjectId(), project));
+            batch.forEach(project -> allSaved.put(project.planeProjectId(), project));
             saved.set(new ArrayList<>(allSaved.values()));
             return null;
         }).when(projectRepository).bulkUpsert(anyList());
@@ -57,18 +57,18 @@ class ProjectCatalogServiceTest {
 
         assertThat(refreshed).hasSize(3);
         assertThat(refreshed).anySatisfy(project -> {
-            assertThat(project.projectId()).isEqualTo("fresh-project");
+            assertThat(project.planeProjectId()).isEqualTo("fresh-project");
             assertThat(project.isAvailable()).isTrue();
-            assertThat(project.name()).isEqualTo("Fresh");
+            assertThat(project.planeProjectName()).isEqualTo("Fresh");
         });
         assertThat(refreshed).anySatisfy(project -> {
-            assertThat(project.projectId()).isEqualTo("stale-project");
+            assertThat(project.planeProjectId()).isEqualTo("stale-project");
             assertThat(project.isAvailable()).isFalse();
             assertThat(project.id()).isEqualTo(staleId);
         });
         assertThat(refreshed).anySatisfy(project -> {
-            assertThat(project.projectId()).isEqualTo("archived-project");
-            assertThat(project.isArchived()).isTrue();
+            assertThat(project.planeProjectId()).isEqualTo("archived-project");
+            assertThat(project.isArchivedInPlane()).isTrue();
             assertThat(project.isAvailable()).isTrue();
         });
     }

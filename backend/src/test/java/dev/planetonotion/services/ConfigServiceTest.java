@@ -6,25 +6,29 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.atLeastOnce;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doAnswer;
 
 import dev.planetonotion.TestData;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
 import dev.planetonotion.models.documents.PlaneWorkspaceDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.configs.SyncOptions;
+import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.services.NotionHierarchyService;
 import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,9 +59,10 @@ class ConfigServiceTest {
     void create_provisionsDestinationPersistsConfigAndSchedulesIt() {
         ObjectId projectRef = new ObjectId();
         ObjectId configId = new ObjectId();
-        PlaneProjectDocument project = TestData.project(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
+        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project"))
@@ -71,17 +76,20 @@ class ConfigServiceTest {
         SyncConfigDocument saved = service.create(intervalInput(projectRef, ConfigStatus.ACTIVE));
 
         assertThat(saved.id()).isEqualTo(configId);
-        assertThat(saved.notionProjectPageId()).isEqualTo("page-id");
-        assertThat(saved.notionDatabaseId()).isEqualTo("db-id");
-        assertThat(saved.notionDataSourceId()).isEqualTo("source-id");
+        ArgumentCaptor<PlaneProjectDocument> projectCaptor = ArgumentCaptor.forClass(PlaneProjectDocument.class);
+        verify(projectRepository, atLeastOnce()).save(projectCaptor.capture());
+        PlaneProjectDocument savedProject = projectCaptor.getValue();
+        assertThat(savedProject.notionProjectPageId()).isEqualTo("page-id");
+        assertThat(savedProject.notionDatabaseId()).isEqualTo("db-id");
+        assertThat(savedProject.notionDataSourceId()).isEqualTo("source-id");
         verify(scheduleService).reset(saved);
     }
 
     @Test
     void create_rejectsPageSyncBeforeProvisioningDestination() {
         ConfigService.ConfigInput input = new ConfigService.ConfigInput(new ObjectId(), ConfigStatus.ACTIVE,
-                Map.of("work_items", true, "pages", true), ScheduleType.INTERVAL, 30, "MINUTES",
-                null, null, List.of(), null, null, null);
+                new SyncOptions(true, true), new SyncSchedule(ScheduleType.INTERVAL, null, null,
+                        new SyncSchedule.Interval(30, IntervalUnit.MINUTES), null));
 
         assertThatThrownBy(() -> service.create(input))
                 .isInstanceOf(ServiceException.class).hasMessageContaining("Page sync is not implemented");
@@ -89,11 +97,17 @@ class ConfigServiceTest {
     }
 
     @Test
+    void intervalUnitEnumExposesOnlySupportedCadences() {
+        assertThat(IntervalUnit.values())
+                .containsExactly(IntervalUnit.MINUTES, IntervalUnit.HOURS);
+    }
+
+    @Test
     void create_rejectsDuplicateProjectConfig() {
         ObjectId projectRef = new ObjectId();
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(
                 TestData.project(projectRef, "demo-workspace", "plane-project")));
-        when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(true);
+        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(true);
 
         assertThatThrownBy(() -> service.create(intervalInput(projectRef, ConfigStatus.ACTIVE)))
                 .isInstanceOf(ServiceException.class).hasMessageContaining("already has a sync config");
@@ -103,9 +117,10 @@ class ConfigServiceTest {
     @Test
     void create_removesConfigAndDestinationWhenScheduleSeedingFails() {
         ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.project(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
+        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
@@ -127,9 +142,10 @@ class ConfigServiceTest {
     @Test
     void create_reportsWhenCompensationCannotArchiveNotionDestination() {
         ObjectId projectRef = new ObjectId();
-        PlaneProjectDocument project = TestData.project(projectRef, "demo-workspace", "plane-project");
+        PlaneProjectDocument project = TestData.projectWithoutNotionDestination(projectRef, "demo-workspace", "plane-project");
         when(projectRepository.findById(projectRef)).thenReturn(Optional.of(project));
-        when(configRepository.existsByPlaneProjectRef(projectRef)).thenReturn(false);
+        when(projectRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(configRepository.existsByPlaneProjectDocumentId(projectRef)).thenReturn(false);
         when(notionHierarchyService.ensureWorkspacePage("demo-workspace"))
                 .thenReturn(new PlaneWorkspaceDocument(new ObjectId(), "demo-workspace", "workspace-page-id", Instant.now(), Instant.now()));
         when(planeService.listWorkItemStates("demo-workspace", "plane-project")).thenReturn(List.of());
@@ -153,7 +169,7 @@ class ConfigServiceTest {
         ObjectId configId = new ObjectId();
         ObjectId projectRef = new ObjectId();
         SyncConfigDocument existing = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
-                ScheduleType.INTERVAL, 30, "MINUTES", null, null);
+                ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         when(configRepository.findById(configId)).thenReturn(Optional.of(existing));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         ConfigService.ConfigInput update = intervalInput(null, ConfigStatus.DISABLED);
@@ -161,7 +177,7 @@ class ConfigServiceTest {
         SyncConfigDocument saved = service.update(configId, update);
 
         assertThat(saved.status()).isEqualTo(ConfigStatus.DISABLED);
-        assertThat(saved.planeProjectRef()).isEqualTo(projectRef);
+        assertThat(saved.planeProjectDocumentId()).isEqualTo(projectRef);
         verify(scheduleService).reset(saved);
     }
 
@@ -170,7 +186,7 @@ class ConfigServiceTest {
         ObjectId configId = new ObjectId();
         ObjectId projectRef = new ObjectId();
         SyncConfigDocument existing = TestData.config(configId, projectRef, ConfigStatus.ACTIVE,
-                ScheduleType.INTERVAL, 30, "MINUTES", null, null);
+                ScheduleType.INTERVAL, 30, IntervalUnit.MINUTES, null, null);
         when(configRepository.findById(configId)).thenReturn(Optional.of(existing));
         when(configRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         doAnswer(invocation -> {
@@ -187,8 +203,8 @@ class ConfigServiceTest {
     }
 
     private ConfigService.ConfigInput intervalInput(ObjectId projectRef, ConfigStatus status) {
-        return new ConfigService.ConfigInput(projectRef, status, Map.of("work_items", true, "pages", false),
-                ScheduleType.INTERVAL, 30, "minutes", null, null, List.of(), null,
-                Instant.now().plusSeconds(3600), null);
+        return new ConfigService.ConfigInput(projectRef, status, new SyncOptions(true, false),
+                new SyncSchedule(ScheduleType.INTERVAL, Instant.now().plusSeconds(3600), null,
+                        new SyncSchedule.Interval(30, IntervalUnit.MINUTES), null));
     }
 }

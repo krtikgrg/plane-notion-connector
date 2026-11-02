@@ -16,6 +16,16 @@ public final class PlaneToNotionEnums {
         CALENDAR
     }
 
+    public enum IntervalUnit {
+        MINUTES,
+        HOURS
+    }
+
+    public enum CalendarFrequency {
+        DAILY,
+        WEEKLY
+    }
+
     public enum SyncJobStatus {
         PENDING,
         RUNNING,

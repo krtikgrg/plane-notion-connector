@@ -2,6 +2,7 @@ package dev.planetonotion.services;
 
 import tools.jackson.databind.JsonNode;
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
+import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
@@ -9,17 +10,16 @@ import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.integrations.NotionClient.ProjectDestination;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
+import dev.planetonotion.models.documents.configs.SyncConfigDocument;
+import dev.planetonotion.models.documents.configs.SyncOptions;
+import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.repositories.SyncConfigRepository;
 import dev.planetonotion.repositories.projects.PlaneProjectRepository;
 import dev.planetonotion.services.NotionHierarchyService;
 import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import org.bson.types.ObjectId;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -27,8 +27,6 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ConfigService {
-
-    private static final List<String> SYNC_OPTION_KEYS = List.of("work_items", "pages");
 
     private final SyncConfigRepository configRepository;
     private final PlaneProjectRepository projectRepository;
@@ -58,49 +56,61 @@ public class ConfigService {
 
     public SyncConfigDocument create(ConfigInput input) {
         validate(input, true);
-        PlaneProjectDocument project = projectRepository.findById(input.planeProjectRef())
+        PlaneProjectDocument project = projectRepository.findById(input.planeProjectDocumentId())
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "The selected Plane project was not found."));
-        if (!project.isAvailable() || project.isArchived()) {
+        if (!project.isAvailable() || project.isArchivedInPlane()) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "PROJECT_NOT_SELECTABLE", "Choose an available, non-archived Plane project.");
         }
-        if (configRepository.existsByPlaneProjectRef(project.id())) {
+        if (configRepository.existsByPlaneProjectDocumentId(project.id())) {
             throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS", "This Plane project already has a sync config.");
         }
+        if (hasAnyNotionDestination(project)) {
+            throw new ServiceException(HttpStatus.CONFLICT, "NOTION_DESTINATION_ALREADY_EXISTS",
+                    "This Plane project already has Notion destination details but no sync config. Repair the destination before retrying.");
+        }
 
-        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.workspaceSlug()).notionPageId();
+        String workspacePageId = notionHierarchyService.ensureWorkspacePage(project.planeWorkspaceSlug()).notionPageId();
         ProjectDestination destination = notionClient.createProjectDestination(workspacePageId,
-                project.name(), names(planeService.listWorkItemStates(project.workspaceSlug(), project.projectId())),
-                names(planeService.listWorkItemLabels(project.workspaceSlug(), project.projectId())));
+                project.planeProjectName(), names(planeService.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())),
+                names(planeService.listWorkItemLabels(project.planeWorkspaceSlug(), project.planeProjectId())));
         Instant now = Instant.now();
         ConfigStatus status = input.status() == null ? ConfigStatus.ACTIVE : input.status();
         ObjectId configId = new ObjectId();
-        SyncConfigDocument draft = new SyncConfigDocument(configId, status, project.id(), destination.pageId(),
-                destination.databaseId(), destination.dataSourceId(), input.syncOptions(), input.scheduleType(),
-                input.intervalValue(), normalizeIntervalUnit(input.intervalUnit()), normalize(input.calendarFrequency()),
-                input.calendarInterval(), normalizedDays(input.calendarDaysOfWeek()), input.calendarTimeOfDay(),
-                input.startAt(), input.endAt(), now, now);
+        try {
+            project = projectRepository.save(withNotionDestination(project, destination, now));
+        } catch (RuntimeException exception) {
+            try {
+                notionClient.archivePage(destination.pageId());
+            } catch (RuntimeException cleanupFailure) {
+                exception.addSuppressed(cleanupFailure);
+            }
+            throw exception;
+        }
+        SyncConfigDocument draft = new SyncConfigDocument(configId, status, project.id(), input.syncOptions(),
+                normalizeSchedule(input.schedule()), now, now);
 
         SyncConfigDocument saved;
         try {
             saved = configRepository.save(draft);
         } catch (DuplicateKeyException exception) {
-            compensateCreate(configId, destination.pageId(), exception);
+            compensateCreate(configId, project, destination.pageId(), exception);
             throw new ServiceException(HttpStatus.CONFLICT, "CONFIG_ALREADY_EXISTS", "This Plane project already has a sync config.");
         } catch (RuntimeException exception) {
-            compensateCreate(configId, destination.pageId(), exception);
+            compensateCreate(configId, project, destination.pageId(), exception);
             throw exception;
         }
         try {
             scheduleService.reset(saved);
         } catch (RuntimeException exception) {
-            compensateCreate(configId, destination.pageId(), exception);
+            compensateCreate(configId, project, destination.pageId(), exception);
             throw exception;
         }
         notionHierarchyService.refreshSummaries();
         return saved;
     }
 
-    private void compensateCreate(ObjectId configId, String projectPageId, RuntimeException createFailure) {
+    private void compensateCreate(ObjectId configId, PlaneProjectDocument project, String projectPageId,
+            RuntimeException createFailure) {
         List<RuntimeException> cleanupFailures = new ArrayList<>();
         try {
             scheduleService.cancelPending(configId);
@@ -109,6 +119,11 @@ public class ConfigService {
         }
         try {
             configRepository.deleteById(configId);
+        } catch (RuntimeException exception) {
+            cleanupFailures.add(exception);
+        }
+        try {
+            projectRepository.save(withoutNotionDestination(project, Instant.now()));
         } catch (RuntimeException exception) {
             cleanupFailures.add(exception);
         }
@@ -130,10 +145,7 @@ public class ConfigService {
         validate(input, false);
         SyncConfigDocument old = findConfig(configId);
         SyncConfigDocument updated = new SyncConfigDocument(
-                old.id(), input.status(), old.planeProjectRef(), old.notionProjectPageId(), old.notionDatabaseId(),
-                old.notionDataSourceId(), input.syncOptions(), input.scheduleType(), input.intervalValue(),
-                normalizeIntervalUnit(input.intervalUnit()), normalize(input.calendarFrequency()), input.calendarInterval(),
-                normalizedDays(input.calendarDaysOfWeek()), input.calendarTimeOfDay(), input.startAt(), input.endAt(),
+                old.id(), input.status(), old.planeProjectDocumentId(), input.syncOptions(), normalizeSchedule(input.schedule()),
                 old.createdAt(), Instant.now());
         SyncConfigDocument saved = configRepository.save(updated);
         try {
@@ -155,55 +167,70 @@ public class ConfigService {
         return saved;
     }
 
+    private boolean hasAnyNotionDestination(PlaneProjectDocument project) {
+        return project.notionProjectPageId() != null || project.notionDatabaseId() != null
+                || project.notionDataSourceId() != null;
+    }
+
+    private PlaneProjectDocument withNotionDestination(PlaneProjectDocument project, ProjectDestination destination,
+            Instant updatedAt) {
+        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(), project.planeProjectName(),
+                project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(), destination.pageId(),
+                destination.databaseId(), destination.dataSourceId(), project.createdAt(), updatedAt);
+    }
+
+    private PlaneProjectDocument withoutNotionDestination(PlaneProjectDocument project, Instant updatedAt) {
+        return new PlaneProjectDocument(project.id(), project.planeWorkspaceSlug(), project.planeProjectId(), project.planeProjectName(),
+                project.planeProjectIdentifier(), project.isArchivedInPlane(), project.isAvailable(), null, null, null,
+                project.createdAt(), updatedAt);
+    }
+
     private SyncConfigDocument findConfig(ObjectId configId) {
         return configRepository.findById(configId)
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND, "CONFIG_NOT_FOUND", "The sync config was not found."));
     }
 
     private void validate(ConfigInput input, boolean creating) {
-        if (input == null || input.scheduleType() == null || input.syncOptions() == null
-                || (creating && input.planeProjectRef() == null)) {
+        if (input == null || input.schedule() == null || input.schedule().type() == null || input.syncOptions() == null
+                || (creating && input.planeProjectDocumentId() == null)) {
             throw invalid("A Plane project, sync options, and schedule type are required.");
         }
         validateOptions(input.syncOptions());
         if (!creating && input.status() == null) {
             throw invalid("A config status is required.");
         }
-        if (input.scheduleType() == ScheduleType.INTERVAL) {
-            if (input.intervalValue() == null || input.intervalValue() < 1 || normalizeIntervalUnit(input.intervalUnit()) == null) {
+        SyncSchedule schedule = input.schedule();
+        if (schedule.type() == ScheduleType.INTERVAL) {
+            if (schedule.interval() == null || schedule.calendar() != null
+                    || schedule.interval().value() == null || schedule.interval().value() < 1
+                    || schedule.interval().unit() == null) {
                 throw invalid("Interval schedules need a positive interval and MINUTES or HOURS unit.");
             }
-        } else if (input.scheduleType() == ScheduleType.CALENDAR) {
-            String frequency = normalize(input.calendarFrequency());
-            if (frequency == null || !List.of("DAILY", "WEEKLY").contains(frequency)
-                    || input.calendarInterval() == null || input.calendarInterval() < 1 || input.calendarTimeOfDay() == null) {
+        } else if (schedule.type() == ScheduleType.CALENDAR) {
+            SyncSchedule.Calendar calendar = schedule.calendar();
+            if (calendar == null || calendar.frequency() == null
+                    || schedule.interval() != null || calendar.interval() == null || calendar.interval() < 1
+                    || calendar.timeOfDay() == null) {
                 throw invalid("Calendar schedules need DAILY or WEEKLY frequency, a positive interval, and a UTC time.");
             }
-            if ("WEEKLY".equals(frequency)) {
-                if (input.calendarDaysOfWeek() == null || input.calendarDaysOfWeek().isEmpty()) {
+            if (calendar.frequency() == CalendarFrequency.WEEKLY) {
+                if (calendar.daysOfWeek() == null || calendar.daysOfWeek().isEmpty()
+                        || calendar.daysOfWeek().contains(null)) {
                     throw invalid("Weekly schedules need at least one day of the week.");
-                }
-                try {
-                    input.calendarDaysOfWeek().forEach(day -> java.time.DayOfWeek.valueOf(day.toUpperCase(Locale.ROOT)));
-                } catch (RuntimeException exception) {
-                    throw invalid("Weekly schedule days must be MONDAY through SUNDAY.");
                 }
             }
         }
-        if (input.startAt() != null && input.endAt() != null && !input.endAt().isAfter(input.startAt())) {
+        if (schedule.startAt() != null && schedule.endAt() != null && !schedule.endAt().isAfter(schedule.startAt())) {
             throw invalid("end_at must be after start_at.");
         }
     }
 
-    private void validateOptions(Map<String, Boolean> options) {
-        if (!Boolean.TRUE.equals(options.get("work_items"))) {
+    private void validateOptions(SyncOptions options) {
+        if (!options.workItems()) {
             throw invalid("Enable work_items for this prototype.");
         }
-        if (Boolean.TRUE.equals(options.get("pages"))) {
+        if (options.pages()) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, "FEATURE_NOT_AVAILABLE", "Page sync is not implemented in the first cut.");
-        }
-        if (options.keySet().stream().anyMatch(key -> !SYNC_OPTION_KEYS.contains(key))) {
-            throw invalid("sync_options contains an unsupported key.");
         }
     }
 
@@ -216,26 +243,24 @@ public class ConfigService {
         return names;
     }
 
-    private List<String> normalizedDays(List<String> values) {
-        return values == null ? List.of() : values.stream().map(value -> value.toUpperCase(Locale.ROOT)).distinct().toList();
+    private List<java.time.DayOfWeek> normalizedDays(List<java.time.DayOfWeek> values) {
+        return values == null ? List.of() : values.stream().distinct().toList();
     }
 
-    private String normalizeIntervalUnit(String value) {
-        String normalized = normalize(value);
-        return normalized != null && List.of("MINUTES", "HOURS").contains(normalized) ? normalized : null;
-    }
-
-    private String normalize(String value) {
-        return value == null ? null : value.toUpperCase(Locale.ROOT);
+    private SyncSchedule normalizeSchedule(SyncSchedule schedule) {
+        SyncSchedule.Interval interval = schedule.interval() == null ? null : new SyncSchedule.Interval(
+                schedule.interval().value(), schedule.interval().unit());
+        SyncSchedule.Calendar calendar = schedule.calendar() == null ? null : new SyncSchedule.Calendar(
+                schedule.calendar().frequency(), schedule.calendar().interval(),
+                normalizedDays(schedule.calendar().daysOfWeek()), schedule.calendar().timeOfDay());
+        return new SyncSchedule(schedule.type(), schedule.startAt(), schedule.endAt(), interval, calendar);
     }
 
     private ServiceException invalid(String message) {
         return new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_CONFIG", message);
     }
 
-    public record ConfigInput(ObjectId planeProjectRef, ConfigStatus status, Map<String, Boolean> syncOptions,
-            ScheduleType scheduleType, Integer intervalValue, String intervalUnit, String calendarFrequency,
-            Integer calendarInterval, List<String> calendarDaysOfWeek, LocalTime calendarTimeOfDay,
-            Instant startAt, Instant endAt) {
+    public record ConfigInput(ObjectId planeProjectDocumentId, ConfigStatus status, SyncOptions syncOptions,
+            SyncSchedule schedule) {
     }
 }

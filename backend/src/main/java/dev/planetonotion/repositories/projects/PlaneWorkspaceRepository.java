@@ -7,5 +7,5 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface PlaneWorkspaceRepository extends MongoRepository<PlaneWorkspaceDocument, ObjectId> {
 
-    Optional<PlaneWorkspaceDocument> findByWorkspaceSlug(String workspaceSlug);
+    Optional<PlaneWorkspaceDocument> findByPlaneWorkspaceSlug(String planeWorkspaceSlug);
 }

@@ -2,7 +2,7 @@ package dev.planetonotion.controllers;
 
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.ApiDtos.PlaneConnectionResponse;
+import dev.planetonotion.models.ApiDtos.StatusResponse;
 import dev.planetonotion.models.ApiDtos.ProjectRefreshRequest;
 import dev.planetonotion.models.ApiDtos.ProjectRefreshResponse;
 import dev.planetonotion.models.ApiDtos.ProjectResponse;
@@ -31,9 +31,9 @@ public class ProjectController {
     }
 
     @PostMapping("/connection/test")
-    public PlaneConnectionResponse testConnection() {
+    public StatusResponse testConnection() {
         planeService.testConnection();
-        return new PlaneConnectionResponse("CONNECTED");
+        return new StatusResponse("CONNECTED");
     }
 
     @GetMapping("/projects")
@@ -54,8 +54,8 @@ public class ProjectController {
     }
 
     private ProjectResponse toResponse(PlaneProjectDocument project) {
-        return new ProjectResponse(project.id().toHexString(), project.workspaceSlug(), project.projectId(),
-                project.name(), project.identifier(), planeService.projectUrl(project.workspaceSlug(), project.projectId()),
-                project.isArchived(), project.isAvailable(), project.lastRefreshedAt());
+        return new ProjectResponse(project.id().toHexString(), project.planeWorkspaceSlug(), project.planeProjectId(),
+                project.planeProjectName(), project.planeProjectIdentifier(), planeService.projectUrl(project.planeWorkspaceSlug(), project.planeProjectId()),
+                project.isArchivedInPlane(), project.isAvailable());
     }
 }

@@ -4,7 +4,9 @@ import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.common.MongoIdParser;
-import dev.planetonotion.models.documents.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.SyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ManualSyncJobDocument;
+import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.ApiDtos.EnqueuedJobResponse;
 import dev.planetonotion.models.ApiDtos.JobResponse;
 import dev.planetonotion.models.ApiDtos.JobHistoryResponse;
@@ -37,14 +39,14 @@ public class SyncJobController {
 
     @GetMapping
     public JobHistoryResponse list(@RequestParam(required = false, name = "config_id") String configId,
-            @RequestParam(required = false) SyncJobStatus status,
-            @RequestParam(required = false, name = "trigger_type") SyncJobType triggerType,
+            @RequestParam(required = false, name = "job_status") SyncJobStatus jobStatus,
+            @RequestParam(required = false, name = "job_type") SyncJobType jobType,
             @RequestParam(required = false, name = "created_from") Instant createdFrom,
             @RequestParam(required = false, name = "created_to") Instant createdTo,
             @RequestParam(required = false, name = "before_id") String beforeId,
             @RequestParam(defaultValue = "20", name = "page_size") int pageSize) {
         validatePageSize(pageSize);
-        var page = syncJobService.list(MongoIdParser.optional(configId, "config_id"), status, triggerType,
+        var page = syncJobService.list(MongoIdParser.optional(configId, "config_id"), jobStatus, jobType,
                 createdFrom, createdTo, MongoIdParser.optional(beforeId, "before_id"), pageSize);
         return new JobHistoryResponse(page.items().stream().map(this::toResponse).toList(), page.nextBeforeId());
     }
@@ -67,16 +69,20 @@ public class SyncJobController {
     }
 
     private EnqueuedJobResponse toEnqueuedResponse(SyncJobDocument job) {
-        return new EnqueuedJobResponse(job.id().toHexString(), job.status(), job.createdAt());
+        return new EnqueuedJobResponse(job.id().toHexString(), job.jobStatus(), job.createdAt());
     }
 
     private JobResponse toResponse(SyncJobDocument job) {
-        return new JobResponse(job.id().toHexString(), job.triggerType(), job.syncScope(), job.status(),
+        var planeWorkItem = job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null
+                ? new dev.planetonotion.models.ApiDtos.PlaneWorkItemResponse(
+                        manual.planeWorkItem().taskUrl(), manual.planeWorkItem().workItemId())
+                : null;
+        var scheduledFor = job instanceof ScheduledSyncJobDocument scheduled ? scheduled.scheduledFor() : null;
+        return new JobResponse(job.id().toHexString(), job.jobType(), job.scope(), job.jobStatus(),
                 job.configId() == null ? null : job.configId().toHexString(),
-                job.planeProjectRef() == null ? null : job.planeProjectRef().toHexString(),
-                job.requestedTaskUrl(), job.workItemId(), job.scheduledFor(), job.startedAt(), job.finishedAt(),
-                job.attemptCount(), job.fetchedCount(), job.eligibleCount(), job.createdCount(), job.updatedCount(),
-                job.unchangedCount(), job.failedCount(), job.errorCode(), job.errorMessage(), job.createdAt());
+                job.planeProjectDocumentId() == null ? null : job.planeProjectDocumentId().toHexString(),
+                planeWorkItem, scheduledFor, job.startedAt(), job.finishedAt(), job.attemptCount(), job.result(),
+                job.errorCode(), job.errorMessage(), job.createdAt());
     }
 
     private void validatePageSize(int pageSize) {

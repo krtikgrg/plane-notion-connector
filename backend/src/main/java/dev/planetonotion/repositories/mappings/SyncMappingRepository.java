@@ -9,8 +9,10 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface SyncMappingRepository extends MongoRepository<SyncMappingDocument, ObjectId>, SyncMappingRepositoryCustom {
 
-    Optional<SyncMappingDocument> findByTargetDataSourceIdAndSourceId(String targetDataSourceId, String sourceId);
+    Optional<SyncMappingDocument> findByNotionDataSourceIdAndPlaneWorkItemId(
+            String notionDataSourceId, String planeWorkItemId);
 
-    List<SyncMappingDocument> findByTargetDataSourceIdAndSourceIdIn(String targetDataSourceId, Collection<String> sourceIds);
+    List<SyncMappingDocument> findByNotionDataSourceIdAndPlaneWorkItemIdIn(
+            String notionDataSourceId, Collection<String> planeWorkItemIds);
 
 }

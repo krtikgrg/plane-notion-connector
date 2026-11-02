@@ -28,26 +28,26 @@ public class SyncMappingRepositoryImpl implements SyncMappingRepositoryCustom {
         BulkOperations operations = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, SyncMappingDocument.class);
         mappings.forEach(mapping -> {
             Query query = Query.query(new Criteria().andOperator(
-                    Criteria.where("target_data_source_id").is(mapping.targetDataSourceId()),
-                    Criteria.where("source_id").is(mapping.sourceId())));
+                    Criteria.where("notion_data_source_id").is(mapping.notionDataSourceId()),
+                    Criteria.where("plane_work_item_id").is(mapping.planeWorkItemId())));
             Update update = new Update()
-                    .set("target_id", mapping.targetId())
-                    .set("source_hash", mapping.sourceHash())
-                    .setOnInsert("target_data_source_id", mapping.targetDataSourceId())
-                    .setOnInsert("source_id", mapping.sourceId());
+                    .set("notion_page_id", mapping.notionPageId())
+                    .set("plane_source_hash", mapping.planeSourceHash())
+                    .setOnInsert("notion_data_source_id", mapping.notionDataSourceId())
+                    .setOnInsert("plane_work_item_id", mapping.planeWorkItemId());
             operations.upsert(query, update);
         });
         operations.execute();
     }
 
     @Override
-    public Map<String, Long> countByTargetDataSourceIds(Collection<String> dataSourceIds) {
-        if (dataSourceIds.isEmpty()) return Map.of();
+    public Map<String, Long> countByNotionDataSourceIds(Collection<String> notionDataSourceIds) {
+        if (notionDataSourceIds.isEmpty()) return Map.of();
         Aggregation aggregation = Aggregation.newAggregation(
                 Aggregation.match(org.springframework.data.mongodb.core.query.Criteria
-                        .where("target_data_source_id").in(dataSourceIds)
-                        .and("target_id").ne(null)),
-                Aggregation.group("target_data_source_id").count().as("count"));
+                        .where("notion_data_source_id").in(notionDataSourceIds)
+                        .and("notion_page_id").ne(null)),
+                Aggregation.group("notion_data_source_id").count().as("count"));
         AggregationResults<org.bson.Document> results = mongoTemplate.aggregate(
                 aggregation, MongoCollectionConstants.SYNC_MAPPINGS, org.bson.Document.class);
         Map<String, Long> counts = new LinkedHashMap<>();

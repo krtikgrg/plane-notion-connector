@@ -23,7 +23,7 @@ const config: SyncConfig = {
   config_id: 'config-1',
   status: 'ARCHIVED',
   project: {
-    plane_project_ref: 'project-ref-1',
+    plane_project_document_id: 'project-ref-1',
     workspace_slug: 'workspace',
     project_id: 'project-1',
     name: 'Demo Project',
@@ -31,21 +31,15 @@ const config: SyncConfig = {
     project_url: 'https://app.plane.so/workspace/projects/project-1',
     is_archived: false,
     is_available: true,
-    last_refreshed_at: '2026-11-01T10:00:00Z',
   },
   notion_project_page_id: 'page-1',
   notion_database_id: 'database-1',
   notion_data_source_id: 'data-source-1',
   sync_options: { work_items: true, pages: false },
-  schedule_type: 'INTERVAL',
-  interval_value: 30,
-  interval_unit: 'MINUTES',
-  calendar_frequency: null,
-  calendar_interval: null,
-  calendar_days_of_week: [],
-  calendar_time_of_day: null,
-  start_at: null,
-  end_at: null,
+  schedule: {
+    type: 'INTERVAL', interval: { value: 30, unit: 'MINUTES' }, calendar: null,
+    start_at: null, end_at: null,
+  },
   created_at: '2026-10-31T10:00:00Z',
   updated_at: '2026-11-01T10:00:00Z',
 };
@@ -60,8 +54,8 @@ describe('manual sync flows', () => {
     vi.mocked(api.listJobs).mockResolvedValue({ items: [], next_before_id: null });
     vi.mocked(api.listConfigJobs).mockResolvedValue({ items: [], next_before_id: null });
     vi.mocked(api.nextScheduledRuns).mockResolvedValue({});
-    vi.mocked(api.enqueueProjectSync).mockResolvedValue({ job_id: 'job-1', status: 'PENDING' });
-    vi.mocked(api.enqueueTaskSync).mockResolvedValue({ job_id: 'job-2', status: 'PENDING' });
+    vi.mocked(api.enqueueProjectSync).mockResolvedValue({ job_id: 'job-1', job_status: 'PENDING' });
+    vi.mocked(api.enqueueTaskSync).mockResolvedValue({ job_id: 'job-2', job_status: 'PENDING' });
   });
 
   it('lets the user force a one-time project run for an archived config', async () => {
@@ -91,11 +85,10 @@ describe('manual sync flows', () => {
   it('loads subsequent run-history pages using the last Mongo id', async () => {
     vi.mocked(api.listJobs).mockImplementation(async (_filters, beforeId) => beforeId
       ? { items: [{
-        job_id: 'job-2', trigger_type: 'MANUAL', sync_scope: 'WORK_ITEM', status: 'SUCCESS',
-        config_id: 'config-1', plane_project_ref: 'project-ref-1', requested_task_url: null,
-        work_item_id: 'item-2', scheduled_for: null, started_at: '2026-11-01T10:00:00Z',
-        finished_at: '2026-11-01T10:00:01Z', attempt_count: 1, fetched_count: 1, eligible_count: 1,
-        created_count: 1, updated_count: 0, unchanged_count: 0, failed_count: 0,
+        job_id: 'job-2', job_type: 'MANUAL', scope: 'WORK_ITEM', job_status: 'SUCCESS',
+        config_id: 'config-1', plane_project_document_id: 'project-ref-1', plane_work_item: { task_url: 'https://app.plane.so/workspace/browse/DEMO-2', work_item_id: 'item-2' }, scheduled_for: null, started_at: '2026-11-01T10:00:00Z',
+        finished_at: '2026-11-01T10:00:01Z', attempt_count: 1, result: { eligible_plane_work_items_count: 1, created_notion_pages_count: 1,
+          updated_notion_pages_count: 0, unchanged_notion_pages_count: 0 },
         error_code: null, error_message: null, created_at: '2026-11-01T10:00:00Z',
       }], next_before_id: null }
       : { items: [], next_before_id: 'job-1' });
@@ -137,11 +130,10 @@ describe('manual sync flows', () => {
 
   it('refreshes run history after a task URL is queued', async () => {
     const queuedJob: SyncJob = {
-      job_id: 'queued-1', trigger_type: 'MANUAL', sync_scope: 'WORK_ITEM', status: 'PENDING',
-      config_id: 'config-1', plane_project_ref: 'project-ref-1', requested_task_url: 'https://app.plane.so/workspace/browse/DEMO-9',
-      work_item_id: 'item-9', scheduled_for: null, started_at: null, finished_at: null,
-      attempt_count: 0, fetched_count: 0, eligible_count: 0, created_count: 0, updated_count: 0,
-      unchanged_count: 0, failed_count: 0, error_code: null, error_message: null, created_at: '2026-11-01T10:00:00Z',
+      job_id: 'queued-1', job_type: 'MANUAL', scope: 'WORK_ITEM', job_status: 'PENDING',
+      config_id: 'config-1', plane_project_document_id: 'project-ref-1', plane_work_item: { task_url: 'https://app.plane.so/workspace/browse/DEMO-9', work_item_id: 'item-9' }, scheduled_for: null, started_at: null, finished_at: null,
+      attempt_count: 0, result: { eligible_plane_work_items_count: 0, created_notion_pages_count: 0,
+        updated_notion_pages_count: 0, unchanged_notion_pages_count: 0 }, error_code: null, error_message: null, created_at: '2026-11-01T10:00:00Z',
     };
     let callCount = 0;
     vi.mocked(api.listJobs).mockImplementation(async () => {
@@ -165,20 +157,19 @@ describe('manual sync flows', () => {
 
   it('keeps the selected run filter when an older request finishes later', async () => {
     const staleJob: SyncJob = {
-      job_id: 'stale-job', trigger_type: 'MANUAL', sync_scope: 'WORK_ITEM', status: 'SUCCESS',
-      config_id: 'config-1', plane_project_ref: 'project-ref-1', requested_task_url: null,
-      work_item_id: 'item-1', scheduled_for: null, started_at: '2026-11-01T10:00:00Z',
-      finished_at: '2026-11-01T10:00:01Z', attempt_count: 1, fetched_count: 1, eligible_count: 1,
-      created_count: 1, updated_count: 0, unchanged_count: 0, failed_count: 0,
+      job_id: 'stale-job', job_type: 'MANUAL', scope: 'WORK_ITEM', job_status: 'SUCCESS',
+      config_id: 'config-1', plane_project_document_id: 'project-ref-1', plane_work_item: { task_url: 'https://app.plane.so/workspace/browse/DEMO-1', work_item_id: 'item-1' }, scheduled_for: null, started_at: '2026-11-01T10:00:00Z',
+      finished_at: '2026-11-01T10:00:01Z', attempt_count: 1, result: { eligible_plane_work_items_count: 1, created_notion_pages_count: 1,
+        updated_notion_pages_count: 0, unchanged_notion_pages_count: 0 },
       error_code: null, error_message: null, created_at: '2026-11-01T10:00:00Z',
     };
     const filteredJobs: SyncJob[] = [
-      { ...staleJob, job_id: 'failed-job-1', status: 'FAILED' },
-      { ...staleJob, job_id: 'failed-job-2', status: 'FAILED' },
+      { ...staleJob, job_id: 'failed-job-1', job_status: 'FAILED' },
+      { ...staleJob, job_id: 'failed-job-2', job_status: 'FAILED' },
     ];
     let resolveUnfiltered: (page: SyncJobPage) => void = () => {};
     vi.mocked(api.listJobs).mockImplementation((filters) => {
-      if (filters?.status === 'FAILED') return Promise.resolve({ items: filteredJobs, next_before_id: null });
+      if (filters?.job_status === 'FAILED') return Promise.resolve({ items: filteredJobs, next_before_id: null });
       return new Promise((resolve) => { resolveUnfiltered = resolve; });
     });
     const user = userEvent.setup();
@@ -190,6 +181,6 @@ describe('manual sync flows', () => {
     resolveUnfiltered({ items: [staleJob], next_before_id: null });
 
     await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(3));
-    expect(api.listJobs).toHaveBeenCalledWith({ status: 'FAILED' });
+    expect(api.listJobs).toHaveBeenCalledWith({ job_status: 'FAILED' });
   });
 });
