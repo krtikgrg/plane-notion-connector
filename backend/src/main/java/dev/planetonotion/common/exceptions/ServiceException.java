@@ -13,7 +13,11 @@ public class ServiceException extends RuntimeException {
         this.errorCode = errorCode;
     }
 
-    public HttpStatus status() { return status; }
+    public HttpStatus status() {
+        return status;
+    }
 
-    public String errorCode() { return errorCode; }
+    public String errorCode() {
+        return errorCode;
+    }
 }
