@@ -5,7 +5,7 @@ import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.common.exceptions.ServiceException;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.repositories.projects.PlaneProjectRepository;
+import dev.planetonotion.repositories.PlaneProjectRepository;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;

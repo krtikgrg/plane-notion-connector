@@ -15,9 +15,9 @@ import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.repositories.SyncConfigRepository;
-import dev.planetonotion.repositories.mappings.SyncMappingRepository;
-import dev.planetonotion.repositories.projects.PlaneProjectRepository;
-import dev.planetonotion.repositories.sync.SyncJobRepository;
+import dev.planetonotion.repositories.SyncMappingRepository;
+import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.repositories.SyncJobRepository;
 import dev.planetonotion.services.NotionHierarchyService;
 import dev.planetonotion.services.AdHocNotionDestinationService;
 import dev.planetonotion.services.ProjectCatalogService;
@@ -25,7 +25,6 @@ import dev.planetonotion.services.ScheduleService;
 import dev.planetonotion.services.sync.SyncJobService;
 import dev.planetonotion.services.sync.SyncJobWorker;
 import dev.planetonotion.services.sync.WorkItemSyncService;
-import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -74,8 +73,8 @@ class AdHocSyncFlowTest {
         when(adHocDestinationService.getOrCreate()).thenReturn(new AdHocNotionDestinationDocument(
                 AdHocNotionDestinationDocument.SHARED_DESTINATION_ID, "adhoc-page", "adhoc-database",
                 AD_HOC_DATA_SOURCE_ID, Instant.now(), Instant.now()));
-        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemId(AD_HOC_DATA_SOURCE_ID, "item-9"))
-                .thenReturn(Optional.empty());
+        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn(AD_HOC_DATA_SOURCE_ID, List.of("item-9")))
+                .thenReturn(List.of());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-9\"}"));
         when(planeService.workItemUrl("workspace", "plane-project", "item-9"))
                 .thenReturn("https://app.plane.so/workspace/projects/plane-project/issues/item-9");

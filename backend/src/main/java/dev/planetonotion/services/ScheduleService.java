@@ -2,7 +2,6 @@ package dev.planetonotion.services;
 
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.CalendarFrequency;
-import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
 import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
@@ -11,7 +10,7 @@ import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
-import dev.planetonotion.repositories.sync.SyncJobRepository;
+import dev.planetonotion.repositories.SyncJobRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;

@@ -1,4 +1,4 @@
-package dev.planetonotion.repositories.sync;
+package dev.planetonotion.repositories;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;

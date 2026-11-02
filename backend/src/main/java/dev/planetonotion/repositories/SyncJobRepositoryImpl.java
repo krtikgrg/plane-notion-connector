@@ -1,4 +1,4 @@
-package dev.planetonotion.repositories.sync;
+package dev.planetonotion.repositories;
 
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
@@ -14,13 +14,35 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.stereotype.Repository;
 
-public class SyncJobRepositoryImpl implements SyncJobRepositoryCustom {
+/** MongoTemplate implementation for sync-job persistence and worker coordination. */
+@Repository
+public class SyncJobRepositoryImpl implements SyncJobRepository {
 
     private final MongoTemplate mongoTemplate;
 
     public SyncJobRepositoryImpl(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
+    }
+
+    @Override
+    public void deleteByConfigIdAndJobTypeAndJobStatus(
+            ObjectId configId, SyncJobType jobType, SyncJobStatus jobStatus) {
+        Criteria criteria = Criteria.where("configId").is(configId)
+                .and("jobType").is(jobType)
+                .and("jobStatus").is(jobStatus);
+        mongoTemplate.remove(Query.query(criteria), SyncJobDocument.class);
+    }
+
+    @Override
+    public Optional<SyncJobDocument> findById(ObjectId id) {
+        return Optional.ofNullable(mongoTemplate.findById(id, SyncJobDocument.class));
+    }
+
+    @Override
+    public SyncJobDocument save(SyncJobDocument job) {
+        return mongoTemplate.save(job);
     }
 
     @Override

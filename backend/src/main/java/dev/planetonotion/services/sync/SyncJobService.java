@@ -15,13 +15,11 @@ import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.SyncJobResult;
 import dev.planetonotion.repositories.SyncConfigRepository;
-import dev.planetonotion.repositories.projects.PlaneProjectRepository;
-import dev.planetonotion.repositories.sync.SyncJobRepository;
-import dev.planetonotion.repositories.sync.SyncJobRepositoryCustom;
+import dev.planetonotion.repositories.PlaneProjectRepository;
+import dev.planetonotion.repositories.SyncJobRepository;
 import java.net.URI;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
@@ -92,7 +90,7 @@ public class SyncJobService {
                 new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
     }
 
-    public SyncJobRepositoryCustom.JobPage list(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
+    public SyncJobRepository.JobPage list(ObjectId configId, SyncJobStatus jobStatus, SyncJobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize) {
         return jobRepository.findJobs(configId, jobStatus, jobType, createdFrom, createdTo, beforeId, pageSize);
     }

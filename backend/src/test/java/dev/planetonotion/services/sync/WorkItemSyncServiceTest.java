@@ -16,9 +16,8 @@ import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.models.documents.SyncMappingDocument;
-import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.common.PlaneToNotionEnums.IntervalUnit;
-import dev.planetonotion.repositories.mappings.SyncMappingRepository;
+import dev.planetonotion.repositories.SyncMappingRepository;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
@@ -122,7 +121,8 @@ class WorkItemSyncServiceTest {
         when(planeService.getWorkItem("workspace", "plane-project", "item-1")).thenReturn(TestData.json("""
                 {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
                 """));
-        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemId(anyString(), anyString())).thenReturn(java.util.Optional.empty());
+        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn(
+                "notion-data-source", List.of("item-1"))).thenReturn(List.of());
         when(notionClient.createWorkItem(anyString(), any())).thenReturn(TestData.json("{\"id\":\"notion-page-1\"}"));
 
         WorkItemSyncService service = new WorkItemSyncService(planeService, notionClient, mappingRepository);
@@ -145,7 +145,8 @@ class WorkItemSyncServiceTest {
                 {"id":"item-1","name":"One","archived_at":null,"state":{},"labels":[]}
                 """));
         SyncMappingDocument pending = new SyncMappingDocument(new ObjectId(), "item-1", null, "notion-data-source", "");
-        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemId(anyString(), anyString())).thenReturn(java.util.Optional.of(pending));
+        when(mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn(
+                "notion-data-source", List.of("item-1"))).thenReturn(List.of(pending));
         when(notionClient.findWorkItemBySourceId("notion-data-source", "item-1"))
                 .thenReturn(TestData.json("{\"results\":[{\"id\":\"recovered-page-id\"}]}"));
 

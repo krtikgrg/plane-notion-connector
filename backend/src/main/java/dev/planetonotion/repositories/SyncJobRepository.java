@@ -1,4 +1,4 @@
-package dev.planetonotion.repositories.sync;
+package dev.planetonotion.repositories;
 
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
@@ -8,7 +8,8 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;
 
-public interface SyncJobRepositoryCustom {
+/** Persistence operations for scheduled and manual sync jobs. */
+public interface SyncJobRepository {
 
     Optional<SyncJobDocument> claimNextDueJob(Instant now);
 
@@ -21,6 +22,13 @@ public interface SyncJobRepositoryCustom {
 
     List<SyncJobDocument> findPendingScheduledJobs(ObjectId configId);
 
+    void deleteByConfigIdAndJobTypeAndJobStatus(ObjectId configId, SyncJobType jobType, SyncJobStatus jobStatus);
+
+    Optional<SyncJobDocument> findById(ObjectId id);
+
+    SyncJobDocument save(SyncJobDocument job);
+
+    /** One page of history and the keyset cursor for the following page, if any. */
     record JobPage(List<SyncJobDocument> items, String nextBeforeId) {
     }
 }

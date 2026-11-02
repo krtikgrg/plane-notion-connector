@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.TestData;
 import java.time.Instant;
 import java.util.ArrayList;

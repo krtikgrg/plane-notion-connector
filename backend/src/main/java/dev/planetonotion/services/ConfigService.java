@@ -14,7 +14,7 @@ import dev.planetonotion.models.documents.configs.SyncConfigDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
 import dev.planetonotion.repositories.SyncConfigRepository;
-import dev.planetonotion.repositories.projects.PlaneProjectRepository;
+import dev.planetonotion.repositories.PlaneProjectRepository;
 import dev.planetonotion.services.NotionHierarchyService;
 import dev.planetonotion.services.ScheduleService;
 import java.time.Instant;

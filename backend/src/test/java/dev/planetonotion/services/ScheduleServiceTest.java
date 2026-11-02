@@ -20,7 +20,7 @@ import dev.planetonotion.models.documents.jobs.SyncJobDocument;
 import dev.planetonotion.models.documents.jobs.ScheduledSyncJobDocument;
 import dev.planetonotion.models.documents.configs.SyncOptions;
 import dev.planetonotion.models.documents.configs.SyncSchedule;
-import dev.planetonotion.repositories.sync.SyncJobRepository;
+import dev.planetonotion.repositories.SyncJobRepository;
 import java.time.Instant;
 import java.time.DayOfWeek;
 import java.time.LocalTime;

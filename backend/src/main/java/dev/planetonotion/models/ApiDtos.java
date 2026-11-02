@@ -1,7 +1,6 @@
 package dev.planetonotion.models;
 
 import dev.planetonotion.common.PlaneToNotionEnums.ConfigStatus;
-import dev.planetonotion.common.PlaneToNotionEnums.ScheduleType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobStatus;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncJobType;
 import dev.planetonotion.common.PlaneToNotionEnums.SyncScope;

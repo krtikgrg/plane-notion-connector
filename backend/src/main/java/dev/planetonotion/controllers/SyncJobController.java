@@ -14,7 +14,6 @@ import dev.planetonotion.models.ApiDtos.ManualTaskSyncRequest;
 import dev.planetonotion.services.sync.SyncJobService;
 import jakarta.validation.Valid;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;

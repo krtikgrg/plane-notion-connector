@@ -1,10 +1,10 @@
-package dev.planetonotion.repositories.mappings;
+package dev.planetonotion.repositories;
 
 import dev.planetonotion.models.documents.SyncMappingDocument;
 import dev.planetonotion.common.MongoCollectionConstants;
-import java.util.List;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -13,13 +13,26 @@ import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.stereotype.Repository;
 
-public class SyncMappingRepositoryImpl implements SyncMappingRepositoryCustom {
+/** MongoTemplate implementation for the mapping persistence operations used by the app. */
+@Repository
+public class SyncMappingRepositoryImpl implements SyncMappingRepository {
 
     private final MongoTemplate mongoTemplate;
 
     public SyncMappingRepositoryImpl(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
+    }
+
+    @Override
+    public List<SyncMappingDocument> findByNotionDataSourceIdAndPlaneWorkItemIdIn(
+            String notionDataSourceId, Collection<String> planeWorkItemIds) {
+        if (planeWorkItemIds.isEmpty()) return List.of();
+        Query query = Query.query(new Criteria().andOperator(
+                Criteria.where("notion_data_source_id").is(notionDataSourceId),
+                Criteria.where("plane_work_item_id").in(planeWorkItemIds)));
+        return mongoTemplate.find(query, SyncMappingDocument.class);
     }
 
     @Override
