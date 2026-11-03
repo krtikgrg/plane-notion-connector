@@ -1,300 +1,422 @@
 package dev.planetonotion.services.sync;
 
-import tools.jackson.databind.JsonNode;
+import dev.planetonotion.common.ApiErrorMessages;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.common.exceptions.ServiceException;
+import dev.planetonotion.common.PlaneToNotionEnums.WorkItemLifecycle;
+import dev.planetonotion.integrations.models.NotionRequestModels.DateProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.DateValue;
+import dev.planetonotion.integrations.models.NotionRequestModels.MultiSelectProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.NamedOption;
+import dev.planetonotion.integrations.models.NotionRequestModels.RichText;
+import dev.planetonotion.integrations.models.NotionRequestModels.RichTextProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.SelectProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.TitleProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.UrlProperty;
+import dev.planetonotion.integrations.models.NotionRequestModels.WorkItemProperties;
+import dev.planetonotion.integrations.models.PlaneApiModels.Label;
+import dev.planetonotion.integrations.models.PlaneApiModels.Person;
+import dev.planetonotion.integrations.models.PlaneApiModels.State;
+import dev.planetonotion.integrations.models.PlaneApiModels.WorkItem;
 import dev.planetonotion.integrations.NotionClient;
-import dev.planetonotion.services.PlaneService;
 import dev.planetonotion.models.documents.PlaneProjectDocument;
-import dev.planetonotion.models.documents.SyncConfigDocument;
 import dev.planetonotion.models.documents.SyncMappingDocument;
-import dev.planetonotion.repositories.mappings.SyncMappingRepository;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.TreeMap;
-import java.nio.charset.StandardCharsets;
+import dev.planetonotion.repositories.SyncMappingRepository;
+import dev.planetonotion.integrations.PlaneClient;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.function.Consumer;
+import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
+import static dev.planetonotion.integrations.PlaneApiConstants.Priority.NONE;
 
+/**
+ * Synchronizes eligible Plane work items into configured or ad hoc Notion data
+ * sources and persists the mapping state for subsequent runs.
+ */
 @Service
 public class WorkItemSyncService {
 
     private static final JsonMapper HASH_MAPPER = JsonMapper.builder().build();
     private static final int MONGO_BATCH_SIZE = 1000;
 
-    private final PlaneService planeService;
+    private final PlaneClient planeClient;
     private final NotionClient notionClient;
     private final SyncMappingRepository mappingRepository;
 
-    public WorkItemSyncService(PlaneService planeService, NotionClient notionClient, SyncMappingRepository mappingRepository) {
-        this.planeService = planeService;
+    /** Creates the sync service with provider clients and mapping storage. */
+    public WorkItemSyncService(PlaneClient planeClient, NotionClient notionClient,
+            SyncMappingRepository mappingRepository) {
+        this.planeClient = planeClient;
         this.notionClient = notionClient;
         this.mappingRepository = mappingRepository;
     }
 
-    public SyncResult syncProject(PlaneProjectDocument project, SyncConfigDocument config, Instant updatedAtFrom,
+    /**
+     * Streams a project's work items, optionally within an updated-time window,
+     * and creates or updates their Notion rows in bounded batches.
+     *
+     * @param project          Plane project and configured Notion destination
+     * @param updatedAtFrom    optional inclusive update-time lower bound
+     * @param updatedAtTo      optional exclusive update-time upper bound
+     * @param progressConsumer receives current counts as items are processed
+     * @return final eligible, created, updated, and unchanged counts
+     */
+    public SyncResult syncProject(PlaneProjectDocument project, Instant updatedAtFrom,
             Instant updatedAtTo, Consumer<SyncResult> progressConsumer) {
-        String dataSourceId = config.notionDataSourceId();
-        List<String> states = names(planeService.listWorkItemStates(project.workspaceSlug(), project.projectId()));
-        List<String> labels = names(planeService.listWorkItemLabels(project.workspaceSlug(), project.projectId()));
-        notionClient.ensureWorkItemOptions(dataSourceId, states, labels);
+        // Validate destination and synchronize options.
+        String notionDataSourceId = project.notionDataSourceId();
+        if (notionDataSourceId == null || notionDataSourceId.isBlank()) {
+            throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
+                    "The project's Notion destination is not configured.");
+        }
+        List<String> states = planeClient.listWorkItemStates(project.planeWorkspaceSlug(), project.planeProjectId())
+                .stream().map(State::name).filter(name -> name != null && !name.isBlank()).distinct().toList();
+        List<String> labels = planeClient.listWorkItemLabels(project.planeWorkspaceSlug(), project.planeProjectId())
+                .stream().map(Label::name).filter(name -> name != null && !name.isBlank()).distinct().toList();
+        notionClient.ensureWorkItemOptions(notionDataSourceId, states, labels);
 
+        // Stream Plane pages into bounded batches.
         SyncAccumulator accumulator = new SyncAccumulator();
-        List<JsonNode> batch = new ArrayList<>(MONGO_BATCH_SIZE);
-        planeService.forEachProjectWorkItemPage(project.workspaceSlug(), project.projectId(), updatedAtFrom,
+        List<WorkItem> batch = new ArrayList<>(MONGO_BATCH_SIZE);
+        planeClient.forEachProjectWorkItemPage(project.planeWorkspaceSlug(), project.planeProjectId(), updatedAtFrom,
                 updatedAtTo, page -> {
-                    for (JsonNode workItem : page) {
+                    for (WorkItem workItem : page) {
                         batch.add(workItem);
-                        if (batch.size() == MONGO_BATCH_SIZE) processBatch(dataSourceId, project, batch, accumulator, progressConsumer);
+                        if (batch.size() == MONGO_BATCH_SIZE)
+                            processBatch(notionDataSourceId, project, batch, accumulator, progressConsumer);
                     }
                 });
-        if (!batch.isEmpty()) processBatch(dataSourceId, project, batch, accumulator, progressConsumer);
+        // Process final batch before returning.
+        if (!batch.isEmpty())
+            processBatch(notionDataSourceId, project, batch, accumulator, progressConsumer);
         return accumulator.result();
     }
 
-    public SyncResult syncOne(SyncConfigDocument config, PlaneProjectDocument project, String workItemId,
+    /**
+     * Synchronizes one work item into the project's configured data source.
+     *
+     * @param project          project whose configured Notion destination receives
+     *                         the row
+     * @param workItemId       Plane work-item UUID
+     * @param progressConsumer receives current counts as processing completes
+     * @return result counts for the selected item
+     */
+    public SyncResult syncOne(PlaneProjectDocument project, String workItemId,
             Consumer<SyncResult> progressConsumer) {
-        return syncOne(config.notionDataSourceId(), project, workItemId, false, progressConsumer);
+        return syncOne(project.notionDataSourceId(), project, workItemId, false, progressConsumer);
     }
 
-    public SyncResult syncOneAdHoc(PlaneProjectDocument project, String workItemId, String dataSourceId,
+    /**
+     * Synchronizes one work item into the shared ad hoc data source.
+     *
+     * @param project            Plane project used to add source identity to the
+     *                           row
+     * @param workItemId         Plane work-item UUID
+     * @param notionDataSourceId shared ad hoc Notion data-source ID
+     * @param progressConsumer   receives current counts as processing completes
+     * @return result counts for the selected item
+     */
+    public SyncResult syncOneAdHoc(PlaneProjectDocument project, String workItemId, String notionDataSourceId,
             Consumer<SyncResult> progressConsumer) {
-        return syncOne(dataSourceId, project, workItemId, true, progressConsumer);
+        return syncOne(notionDataSourceId, project, workItemId, true, progressConsumer);
     }
 
-    private SyncResult syncOne(String dataSourceId, PlaneProjectDocument project, String workItemId, boolean adHoc,
+    /** Reads one Plane item and upserts its Notion row and mapping. */
+    private SyncResult syncOne(String notionDataSourceId, PlaneProjectDocument project, String workItemId,
+            boolean adHoc,
             Consumer<SyncResult> progressConsumer) {
-        JsonNode workItem = planeService.getWorkItem(project.workspaceSlug(), project.projectId(), workItemId);
+        // Read and validate requested work item.
+        WorkItem workItem = planeClient.getWorkItem(project.planeWorkspaceSlug(), project.planeProjectId(),
+                workItemId);
         assertEligible(workItem);
         progressConsumer.accept(new SyncResult(1, 0, 0, 0));
-        List<String> stateNames = namesFromExpanded(workItem.path("state"));
-        List<String> labelNames = names(workItem.path("labels"));
-        notionClient.ensureWorkItemOptions(dataSourceId, stateNames, labelNames);
-        SyncMappingDocument mapping = mappingRepository.findByTargetDataSourceIdAndSourceId(dataSourceId,
-                workItem.path("id").asString("")).orElse(null);
+        // Ensure options and find existing mapping.
+        List<String> stateNames = workItem.state() == null || workItem.state().name() == null
+                ? List.of()
+                : List.of(workItem.state().name());
+        List<String> labelNames = namesLabels(workItem.labels());
+        notionClient.ensureWorkItemOptions(notionDataSourceId, stateNames, labelNames);
+        List<SyncMappingDocument> mappings = mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn(
+                notionDataSourceId, List.of(workItem.id()));
+        SyncMappingDocument mapping = mappings.stream().findFirst().orElse(null);
+        // Save pending mapping before Notion writes.
         boolean newPendingMapping = mapping == null;
         if (newPendingMapping) {
-            mapping = pendingMapping(workItem.path("id").asString(""), dataSourceId);
+            mapping = pendingMapping(workItem.id(), notionDataSourceId);
             mappingRepository.bulkUpsert(List.of(mapping));
         }
-        UpsertResult result = upsert(dataSourceId, project, workItem, adHoc, mapping, newPendingMapping);
-        if (result.mapping() != null) mappingRepository.bulkUpsert(List.of(result.mapping()));
+        // Upsert page and persist mapping changes.
+        UpsertResult result = upsert(notionDataSourceId, project, workItem, adHoc, mapping, newPendingMapping);
+        if (result.mapping() != null)
+            mappingRepository.bulkUpsert(List.of(result.mapping()));
         SyncResult syncResult = new SyncResult(1, result.created() ? 1 : 0, result.updated() ? 1 : 0,
                 result.unchanged() ? 1 : 0);
         progressConsumer.accept(syncResult);
         return syncResult;
     }
 
-    private void processBatch(String dataSourceId, PlaneProjectDocument project, List<JsonNode> batch,
+    /** Processes a bounded batch and flushes mappings around failures. */
+    private void processBatch(String notionDataSourceId, PlaneProjectDocument project, List<WorkItem> batch,
             SyncAccumulator accumulator, Consumer<SyncResult> progressConsumer) {
-        List<String> sourceIds = batch.stream().map(item -> item.path("id").asString(""))
-                .filter(sourceId -> !sourceId.isBlank()).toList();
-        Map<String, SyncMappingDocument> mappingsBySourceId = new LinkedHashMap<>();
-        mappingRepository.findByTargetDataSourceIdAndSourceIdIn(dataSourceId, sourceIds)
-                .forEach(mapping -> mappingsBySourceId.put(mapping.sourceId(), mapping));
+        // Load mappings and prepare missing placeholders.
+        List<String> planeWorkItemIds = batch.stream().map(WorkItem::id)
+                .filter(planeWorkItemId -> !planeWorkItemId.isBlank()).toList();
+        Map<String, SyncMappingDocument> mappingsByPlaneWorkItemId = new LinkedHashMap<>();
+        mappingRepository.findByNotionDataSourceIdAndPlaneWorkItemIdIn(notionDataSourceId, planeWorkItemIds)
+                .forEach(mapping -> mappingsByPlaneWorkItemId.put(mapping.planeWorkItemId(), mapping));
         List<SyncMappingDocument> pendingMappings = new ArrayList<>();
         Set<String> pendingCreatedSourceIds = new HashSet<>();
-        for (String sourceId : sourceIds) {
-            if (!mappingsBySourceId.containsKey(sourceId)) {
-                SyncMappingDocument pending = pendingMapping(sourceId, dataSourceId);
-                mappingsBySourceId.put(sourceId, pending);
+        for (String planeWorkItemId : planeWorkItemIds) {
+            if (!mappingsByPlaneWorkItemId.containsKey(planeWorkItemId)) {
+                SyncMappingDocument pending = pendingMapping(planeWorkItemId, notionDataSourceId);
+                mappingsByPlaneWorkItemId.put(planeWorkItemId, pending);
                 pendingMappings.add(pending);
-                pendingCreatedSourceIds.add(sourceId);
+                pendingCreatedSourceIds.add(planeWorkItemId);
             }
         }
-        if (!pendingMappings.isEmpty()) mappingRepository.bulkUpsert(pendingMappings);
+        // Persist placeholders before processing items.
+        if (!pendingMappings.isEmpty())
+            mappingRepository.bulkUpsert(pendingMappings);
         List<SyncMappingDocument> mappingsToWrite = new ArrayList<>();
+        // Upsert each item while tracking progress.
         try {
-            for (JsonNode workItem : batch) {
+            for (WorkItem workItem : batch) {
                 accumulator.eligibleCount++;
                 progressConsumer.accept(accumulator.result());
-                String sourceId = workItem.path("id").asString("");
-                if (sourceId.isBlank()) {
-                    throw new ServiceException(HttpStatus.BAD_GATEWAY, "PLANE_RESPONSE_INVALID", "Plane returned a work item without an ID.");
+                String planeWorkItemId = workItem.id();
+                if (planeWorkItemId.isBlank()) {
+                    throw new ServiceException(HttpStatus.BAD_GATEWAY, ApiErrorCodes.Plane.RESPONSE_INVALID,
+                            "Plane returned a work item without an ID.");
                 }
-                boolean pendingCreatedNow = pendingCreatedSourceIds.contains(sourceId);
-                UpsertResult result = upsert(dataSourceId, project, workItem, false, mappingsBySourceId.get(sourceId), pendingCreatedNow);
-                if (result.mapping() != null) mappingsToWrite.add(result.mapping());
-                if (result.created()) accumulator.createdCount++;
-                else if (result.updated()) accumulator.updatedCount++;
-                else if (result.unchanged()) accumulator.unchangedCount++;
+                boolean pendingCreatedNow = pendingCreatedSourceIds.contains(planeWorkItemId);
+                UpsertResult result = upsert(notionDataSourceId, project, workItem, false,
+                        mappingsByPlaneWorkItemId.get(planeWorkItemId), pendingCreatedNow);
+                if (result.mapping() != null)
+                    mappingsToWrite.add(result.mapping());
+                if (result.created())
+                    accumulator.createdCount++;
+                else if (result.updated())
+                    accumulator.updatedCount++;
+                else if (result.unchanged())
+                    accumulator.unchangedCount++;
                 progressConsumer.accept(accumulator.result());
             }
         } catch (RuntimeException exception) {
-            if (!mappingsToWrite.isEmpty()) mappingRepository.bulkUpsert(mappingsToWrite);
+            // Save completed mappings before propagating failure.
+            if (!mappingsToWrite.isEmpty())
+                mappingRepository.bulkUpsert(mappingsToWrite);
             throw exception;
         }
-        if (!mappingsToWrite.isEmpty()) mappingRepository.bulkUpsert(mappingsToWrite);
+        // Persist mappings and release the batch.
+        if (!mappingsToWrite.isEmpty())
+            mappingRepository.bulkUpsert(mappingsToWrite);
         batch.clear();
     }
 
-    private UpsertResult upsert(String dataSourceId, PlaneProjectDocument project, JsonNode workItem,
+    /** Creates, updates, recovers, or skips one Notion work-item row. */
+    private UpsertResult upsert(String notionDataSourceId, PlaneProjectDocument project, WorkItem workItem,
             boolean adHoc, SyncMappingDocument mapping, boolean pendingCreatedNow) {
-        String sourceId = workItem.path("id").asString("");
-        Map<String, Object> properties = notionProperties(project, workItem);
-        if (adHoc) {
-            properties.put("workspace_slug", typed("rich_text", richText(project.workspaceSlug())));
-            properties.put("project_id", typed("rich_text", richText(project.projectId())));
-            properties.put("project_identifier", typed("rich_text", richText(project.identifier())));
-            properties.put("project_name", typed("rich_text", richText(project.name())));
-        }
-        String sourceHash = sourceHash(properties);
+        // Build mapped properties and source hash.
+        String planeWorkItemId = workItem.id();
+        WorkItemProperties properties = notionProperties(project, workItem, adHoc);
+        String planeSourceHash = planeSourceHash(properties);
+        // Reuse or repair an existing mapping.
         if (mapping != null) {
-            if (mapping.targetId() == null || mapping.targetId().isBlank()) {
+            if (mapping.notionPageId() == null || mapping.notionPageId().isBlank()) {
                 if (!pendingCreatedNow) {
-                    JsonNode matches = notionClient.findWorkItemBySourceId(dataSourceId, sourceId);
-                    JsonNode foundPage = matches.path("results").isArray() && !matches.path("results").isEmpty()
-                            ? matches.path("results").get(0) : null;
+                    // Recover pages for pending mappings.
+                    var matches = notionClient.findWorkItemBySourceId(notionDataSourceId, planeWorkItemId);
+                    var foundPage = matches.results() == null || matches.results().isEmpty()
+                            ? null
+                            : matches.results().get(0);
                     if (foundPage != null) {
-                        String recoveredTargetId = foundPage.path("id").asString("");
+                        String recoveredTargetId = foundPage.id();
                         if (recoveredTargetId.isBlank()) {
-                            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502,
+                            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502,
                                     "Notion returned a matching work item without a page ID.");
                         }
                         notionClient.updateWorkItem(recoveredTargetId, properties);
                         return new UpsertResult(false, true, false,
-                                new SyncMappingDocument(mapping.id(), sourceId, recoveredTargetId, dataSourceId, sourceHash));
+                                new SyncMappingDocument(mapping.id(), planeWorkItemId, recoveredTargetId,
+                                        notionDataSourceId, planeSourceHash));
                     }
                 }
-                return createWithMapping(dataSourceId, sourceId, sourceHash, properties, mapping.id());
+                return createWithMapping(notionDataSourceId, planeWorkItemId, planeSourceHash, properties,
+                        mapping.id());
             }
-            boolean unchanged = sourceHash.equals(mapping.sourceHash());
-            if (unchanged) return new UpsertResult(false, false, true, null);
+            // Skip writes when the source matches.
+            boolean unchanged = planeSourceHash.equals(mapping.planeSourceHash());
+            if (unchanged)
+                return new UpsertResult(false, false, true, null);
+            // Update the existing Notion page.
             try {
-                notionClient.updateWorkItem(mapping.targetId(), properties);
+                notionClient.updateWorkItem(mapping.notionPageId(), properties);
                 return new UpsertResult(false, true, false,
-                        new SyncMappingDocument(mapping.id(), sourceId, mapping.targetId(), dataSourceId, sourceHash));
+                        new SyncMappingDocument(mapping.id(), planeWorkItemId, mapping.notionPageId(),
+                                notionDataSourceId, planeSourceHash));
             } catch (IntegrationException exception) {
-                if (exception.upstreamStatus() != 404) throw exception;
-                mappingRepository.bulkUpsert(List.of(pendingMapping(sourceId, dataSourceId, mapping.id())));
+                if (exception.upstreamStatus() != 404)
+                    throw exception;
+                // Mark mappings pending after Notion 404.
+                mappingRepository
+                        .bulkUpsert(List.of(pendingMapping(planeWorkItemId, notionDataSourceId, mapping.id())));
             }
         }
-        return createWithMapping(dataSourceId, sourceId, sourceHash, properties, mapping == null ? null : mapping.id());
+        return createWithMapping(notionDataSourceId, planeWorkItemId, planeSourceHash, properties,
+                mapping == null ? null : mapping.id());
     }
 
-    private UpsertResult createWithMapping(String dataSourceId, String sourceId, String sourceHash,
-            Map<String, Object> properties, org.bson.types.ObjectId mappingId) {
-        JsonNode page = notionClient.createWorkItem(dataSourceId, properties);
-        String targetId = page.path("id").asString("");
+    /** Creates a Notion row and returns its new mapping. */
+    private UpsertResult createWithMapping(String notionDataSourceId, String planeWorkItemId, String planeSourceHash,
+            WorkItemProperties properties, ObjectId mappingId) {
+        // Create page and validate returned ID.
+        var page = notionClient.createWorkItem(notionDataSourceId, properties);
+        String targetId = page.id();
         if (targetId.isBlank()) {
-            throw new IntegrationException("NOTION_RESPONSE_INVALID", 502, "Notion did not return the created work item page ID.");
+            throw new IntegrationException(ApiErrorCodes.Notion.RESPONSE_INVALID, 502,
+                    "Notion did not return the created work item page ID.");
         }
         return new UpsertResult(true, false, false,
-                new SyncMappingDocument(mappingId, sourceId, targetId, dataSourceId, sourceHash));
+                new SyncMappingDocument(mappingId, planeWorkItemId, targetId, notionDataSourceId, planeSourceHash));
     }
 
-    private SyncMappingDocument pendingMapping(String sourceId, String dataSourceId) {
-        return pendingMapping(sourceId, dataSourceId, null);
+    /** Creates a placeholder mapping before Notion creation. */
+    private SyncMappingDocument pendingMapping(String planeWorkItemId, String notionDataSourceId) {
+        return pendingMapping(planeWorkItemId, notionDataSourceId, null);
     }
 
-    private SyncMappingDocument pendingMapping(String sourceId, String dataSourceId, org.bson.types.ObjectId id) {
-        return new SyncMappingDocument(id, sourceId, null, dataSourceId, "");
+    /** Creates a placeholder while preserving an existing mapping ID. */
+    private SyncMappingDocument pendingMapping(String planeWorkItemId, String notionDataSourceId,
+            ObjectId id) {
+        return new SyncMappingDocument(id, planeWorkItemId, null, notionDataSourceId, "");
     }
 
-    private String sourceHash(Map<String, Object> properties) {
+    /** Hashes canonical mapped properties to detect unchanged items. */
+    private String planeSourceHash(Object properties) {
         try {
-            byte[] payload = HASH_MAPPER.writeValueAsBytes(sorted(properties));
+            // Serialize stable properties before hashing.
+            Object serializedProperties = HASH_MAPPER.readValue(
+                    HASH_MAPPER.writeValueAsBytes(properties), Object.class);
+            byte[] payload = HASH_MAPPER.writeValueAsBytes(sorted(serializedProperties));
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(payload);
-            return java.util.HexFormat.of().formatHex(digest);
+            return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);
         }
     }
 
+    /** Sorts nested maps while preserving list order. */
     private Object sorted(Object value) {
         if (value instanceof Map<?, ?> map) {
+            // Sort object keys for deterministic hashes.
             Map<String, Object> sorted = new TreeMap<>();
             map.forEach((key, child) -> sorted.put(String.valueOf(key), sorted(child)));
             return sorted;
         }
-        if (value instanceof List<?> list) return list.stream().map(this::sorted).toList();
+        // Preserve list order while sorting values.
+        if (value instanceof List<?> list)
+            return list.stream().map(this::sorted).toList();
         return value;
     }
 
-    private Map<String, Object> notionProperties(PlaneProjectDocument project, JsonNode workItem) {
-        String workItemId = workItem.path("id").asString("");
-        String state = workItem.path("state").path("name").asString("");
-        String priority = workItem.path("priority").asString("none");
-        String targetDate = workItem.path("target_date").asString("");
-        String updatedAt = workItem.path("updated_at").asString("");
-        Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("name", typed("title", richText(workItem.path("name").asString("Untitled work item"))));
-        properties.put("identifier", typed("rich_text", richText(workItem.path("identifier").asString(""))));
-        properties.put("work_item_id", typed("rich_text", richText(workItemId)));
-        properties.put("work_item_url", typed("url", planeService.workItemUrl(project.workspaceSlug(), project.projectId(), workItemId)));
-        properties.put("description", typed("rich_text", richText(plainText(workItem.path("description_html").asString("")))));
-        properties.put("state", typed("select", state.isBlank() ? null : Map.of("name", state)));
-        properties.put("priority", typed("select", "none".equals(priority) ? null : Map.of("name", priority)));
-        properties.put("assignees", typed("rich_text", richText(String.join(", ", names(workItem.path("assignees"))))));
-        properties.put("labels", typed("multi_select", names(workItem.path("labels")).stream()
-                .map(name -> Map.of("name", name)).toList()));
-        properties.put("due_date", typed("date", targetDate.isBlank() ? null : Map.of("start", targetDate)));
-        properties.put("plane_updated_at", typed("date", updatedAt.isBlank() ? null : Map.of("start", updatedAt)));
-        properties.put("plane_lifecycle", typed("select", Map.of("name", "ACTIVE")));
-        return properties;
+    /** Maps Plane work-item fields to the Notion row schema. */
+    private WorkItemProperties notionProperties(PlaneProjectDocument project, WorkItem workItem, boolean adHoc) {
+        // Normalize all Plane fields before mapping.
+        String workItemId = workItem.id();
+        String state = workItem.state() == null || workItem.state().name() == null ? "" : workItem.state().name();
+        String priority = workItem.priority();
+        String targetDate = workItem.targetDate() == null ? "" : workItem.targetDate();
+        String updatedAt = workItem.updatedAt() == null ? "" : workItem.updatedAt();
+        return new WorkItemProperties(
+                TitleProperty.of(richText(defaultValue(workItem.name(), "Untitled work item"))),
+                RichTextProperty.of(richText(defaultValue(workItem.identifier(), ""))),
+                RichTextProperty.of(richText(workItemId)),
+                UrlProperty.of(planeClient.workItemUrl(
+                        project.planeWorkspaceSlug(), project.planeProjectId(), workItemId)),
+                RichTextProperty.of(richText(plainText(defaultValue(workItem.descriptionHtml(), "")))),
+                state.isBlank() ? null : SelectProperty.of(new NamedOption(state)),
+                priority == null || priority.isBlank() || NONE.equalsIgnoreCase(priority)
+                        ? null
+                        : SelectProperty.of(new NamedOption(priority)),
+                RichTextProperty.of(richText(String.join(", ", namesPeople(workItem.assignees())))),
+                MultiSelectProperty.of(namesLabels(workItem.labels()).stream().map(NamedOption::new).toList()),
+                targetDate.isBlank() ? null : DateProperty.of(new DateValue(targetDate)),
+                updatedAt.isBlank() ? null : DateProperty.of(new DateValue(updatedAt)),
+                SelectProperty.of(new NamedOption(WorkItemLifecycle.ACTIVE.name())),
+                adHoc ? RichTextProperty.of(richText(project.planeWorkspaceSlug())) : null,
+                adHoc ? RichTextProperty.of(richText(project.planeProjectId())) : null,
+                adHoc ? RichTextProperty.of(richText(project.planeProjectIdentifier())) : null,
+                adHoc ? RichTextProperty.of(richText(project.planeProjectName())) : null);
     }
 
-    private void assertEligible(JsonNode workItem) {
-        if (workItem.path("is_draft").asBoolean(false)) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "DRAFT_WORK_ITEM", "A draft work item cannot be synced.");
+    /** Rejects drafts and archived work items from synchronization. */
+    private void assertEligible(WorkItem workItem) {
+        // Exclude drafts and archived source items.
+        if (Boolean.TRUE.equals(workItem.isDraft())) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.DRAFT_WORK_ITEM,
+                    ApiErrorMessages.Application.DRAFT_WORK_ITEM);
         }
-        if (!workItem.path("archived_at").isMissingNode() && !workItem.path("archived_at").isNull()) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "ARCHIVED_WORK_ITEM", "An archived work item cannot be synced.");
+        if (workItem.archivedAt() != null) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.ARCHIVED_WORK_ITEM,
+                    ApiErrorMessages.Application.ARCHIVED_WORK_ITEM);
         }
     }
 
-    private Map<String, Object> typed(String key, Object value) {
-        Map<String, Object> property = new LinkedHashMap<>();
-        property.put(key, value);
-        return property;
-    }
-
-    private List<Map<String, Object>> richText(String value) {
-        if (value == null || value.isBlank()) return List.of();
-        List<Map<String, Object>> result = new ArrayList<>();
+    /** Splits text into Notion-sized rich-text fragments. */
+    private List<RichText> richText(String value) {
+        if (value == null || value.isBlank())
+            return List.of();
+        List<RichText> result = new ArrayList<>();
+        // Split long text into API-sized pieces.
         for (int start = 0; start < value.length(); start += 2000) {
             String chunk = value.substring(start, Math.min(value.length(), start + 2000));
-            result.add(Map.of("type", "text", "text", Map.of("content", chunk)));
+            result.add(RichText.plain(chunk));
         }
         return result;
     }
 
-    private List<String> names(JsonNode values) {
-        List<String> result = new ArrayList<>();
-        if (values.isArray()) {
-            values.forEach(value -> {
-                String name = value.path("display_name").asString(value.path("name").asString(""));
-                if (name.isBlank()) {
-                    String first = value.path("first_name").asString("");
-                    String last = value.path("last_name").asString("");
-                    name = (first + " " + last).trim();
-                }
-                if (!name.isBlank()) result.add(name);
-            });
-        }
-        return result.stream().distinct().toList();
+    /** Returns distinct nonblank Plane assignee names. */
+    private List<String> namesPeople(List<Person> values) {
+        if (values == null)
+            return List.of();
+        // Prefer display names, then full names.
+        return values.stream().map(person -> {
+            String name = defaultValue(person.displayName(), "");
+            if (name.isBlank())
+                name = (defaultValue(person.firstName(), "") + " " + defaultValue(person.lastName(), "")).trim();
+            return name;
+        }).filter(name -> !name.isBlank()).distinct().toList();
     }
 
-    private List<String> names(List<JsonNode> values) {
-        return values.stream().map(value -> value.path("name").asString(""))
-                .filter(name -> !name.isBlank()).distinct().toList();
+    /** Returns distinct nonblank Plane label names. */
+    private List<String> namesLabels(List<Label> values) {
+        if (values == null)
+            return List.of();
+        // Ignore blank labels and remove duplicates.
+        return values.stream().map(Label::name).filter(name -> name != null && !name.isBlank()).distinct().toList();
     }
 
-    private List<String> namesFromExpanded(JsonNode expandedState) {
-        String name = expandedState.path("name").asString("");
-        return name.isBlank() ? List.of() : List.of(name);
+    /** Uses the fallback only when the value is null. */
+    private String defaultValue(String value, String fallback) {
+        return value == null ? fallback : value;
     }
 
+    /** Converts simple Plane HTML descriptions into plain text. */
     private String plainText(String html) {
+        // Convert common HTML tags and entities.
         return html.replaceAll("(?i)<br\\s*/?>", "\n")
                 .replaceAll("(?i)</(p|div|li|h[1-6])\\s*>", "\n")
                 .replaceAll("<[^>]*>", " ")
@@ -302,9 +424,11 @@ public class WorkItemSyncService {
                 .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").trim();
     }
 
+    /** Per-run counts for selected and synchronized work items. */
     public record SyncResult(int eligibleCount, int createdCount, int updatedCount, int unchangedCount) {
     }
 
+    /** Outcome and optional mapping produced by one row upsert. */
     private record UpsertResult(boolean created, boolean updated, boolean unchanged, SyncMappingDocument mapping) {
     }
 
@@ -314,6 +438,7 @@ public class WorkItemSyncService {
         private int updatedCount;
         private int unchangedCount;
 
+        /** Copies the accumulator's current counts into a result. */
         private SyncResult result() {
             return new SyncResult(eligibleCount, createdCount, updatedCount, unchangedCount);
         }

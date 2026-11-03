@@ -1,7 +1,14 @@
 package dev.planetonotion.repositories;
 
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
-import org.springframework.data.mongodb.repository.MongoRepository;
+import java.util.Optional;
 
-public interface AdHocNotionDestinationRepository extends MongoRepository<AdHocNotionDestinationDocument, String> {
+/** Persistence operations for the shared manual-only Notion destination. */
+public interface AdHocNotionDestinationRepository {
+
+    /** Finds the shared destination used by manual sync jobs. */
+    Optional<AdHocNotionDestinationDocument> findById(String id);
+
+    /** Saves the shared manual-sync destination. */
+    AdHocNotionDestinationDocument save(AdHocNotionDestinationDocument destination);
 }

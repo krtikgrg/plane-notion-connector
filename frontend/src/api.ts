@@ -41,7 +41,7 @@ export const api = {
     '/api/plane/projects/resolve', json('POST', { project_url: projectUrl })),
   listConfigs: () => request<SyncConfig[]>('/api/configs'),
   nextScheduledRuns: () => request<Record<string, string>>('/api/sync-jobs/next-scheduled'),
-  createConfig: (body: ConfigPayload & { plane_project_ref: string }) => request<SyncConfig>('/api/configs', json('POST', body)),
+  createConfig: (body: ConfigPayload & { plane_project_document_id: string }) => request<SyncConfig>('/api/configs', json('POST', body)),
   updateConfig: (id: string, body: ConfigPayload) => request<SyncConfig>(
     `/api/configs/${id}`, json('PATCH', body)),
   listJobs: (filters: Record<string, string> = {}, beforeId?: string, pageSize = 20) => {
@@ -52,8 +52,8 @@ export const api = {
     const query = new URLSearchParams({ page_size: pageSize.toString(), ...(beforeId ? { before_id: beforeId } : {}) }).toString();
     return request<SyncJobPage>(`/api/configs/${configId}/sync-jobs?${query}`);
   },
-  enqueueProjectSync: (id: string, forceArchived: boolean) => request<{ job_id: string; status: string }>(
+  enqueueProjectSync: (id: string, forceArchived: boolean) => request<{ job_id: string; job_status: string }>(
     `/api/configs/${id}/sync-jobs`, json('POST', { force_archived_config: forceArchived })),
-  enqueueTaskSync: (taskUrl: string, forceArchived: boolean) => request<{ job_id: string; status: string }>(
+  enqueueTaskSync: (taskUrl: string, forceArchived: boolean) => request<{ job_id: string; job_status: string }>(
     '/api/sync-jobs/manual', json('POST', { task_url: taskUrl, force_archived_config: forceArchived })),
 };

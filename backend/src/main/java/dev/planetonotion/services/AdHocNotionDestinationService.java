@@ -1,36 +1,52 @@
 package dev.planetonotion.services;
 
-import dev.planetonotion.common.IntegrationProperties;
-import dev.planetonotion.integrations.NotionClient;
+import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient.ProjectDestination;
+import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.repositories.AdHocNotionDestinationRepository;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
 
+/**
+ * Finds or provisions the shared Notion destination used for work items that do
+ * not match a configured Plane project.
+ */
 @Service
 public class AdHocNotionDestinationService {
 
     private final AdHocNotionDestinationRepository destinationRepository;
     private final NotionClient notionClient;
-    private final IntegrationProperties properties;
+    private final NotionBlockClient notionBlockClient;
 
+    /**
+     * Supplies persistence and Notion clients used to provision the destination.
+     */
     public AdHocNotionDestinationService(AdHocNotionDestinationRepository destinationRepository,
-            NotionClient notionClient, IntegrationProperties properties) {
+            NotionClient notionClient, NotionBlockClient notionBlockClient) {
         this.destinationRepository = destinationRepository;
         this.notionClient = notionClient;
-        this.properties = properties;
+        this.notionBlockClient = notionBlockClient;
     }
 
+    /**
+     * Returns the stored shared destination, creating it on Notion and storing
+     * its identifiers if no destination record exists.
+     *
+     * @return the shared destination document
+     */
     public synchronized AdHocNotionDestinationDocument getOrCreate() {
         return destinationRepository.findById(AdHocNotionDestinationDocument.SHARED_DESTINATION_ID)
                 .orElseGet(this::createAndStore);
     }
 
+    /**
+     * Provisions the shared Notion destination and saves its IDs in MongoDB. If
+     * saving fails, attempts to archive the newly created Notion page and adds
+     * any cleanup failure as a suppressed exception.
+     */
     private AdHocNotionDestinationDocument createAndStore() {
-        ProjectDestination destination = legacyDestination();
-        boolean createdByService = destination == null;
-        if (createdByService) destination = notionClient.createAdHocDestination();
+        ProjectDestination destination = notionClient.createAdHocDestination();
 
         Instant now = Instant.now();
         AdHocNotionDestinationDocument document = new AdHocNotionDestinationDocument(
@@ -39,30 +55,12 @@ public class AdHocNotionDestinationService {
         try {
             return destinationRepository.save(document);
         } catch (RuntimeException exception) {
-            if (createdByService) {
-                try {
-                    notionClient.archivePage(destination.pageId());
-                } catch (RuntimeException cleanupFailure) {
-                    exception.addSuppressed(cleanupFailure);
-                }
+            try {
+                notionBlockClient.archivePage(destination.pageId());
+            } catch (RuntimeException cleanupFailure) {
+                exception.addSuppressed(cleanupFailure);
             }
             throw exception;
         }
-    }
-
-    private ProjectDestination legacyDestination() {
-        String pageId = properties.legacyNotionAdHocPageId();
-        String databaseId = properties.legacyNotionAdHocDatabaseId();
-        String dataSourceId = properties.legacyNotionAdHocDataSourceId();
-        boolean anyConfigured = hasText(pageId) || hasText(databaseId) || hasText(dataSourceId);
-        if (!anyConfigured) return null;
-        if (!hasText(pageId) || !hasText(databaseId) || !hasText(dataSourceId)) {
-            throw new IllegalStateException("Legacy ad hoc Notion destination IDs are incomplete; provide all three IDs or remove them.");
-        }
-        return new ProjectDestination(pageId, databaseId, dataSourceId);
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 }

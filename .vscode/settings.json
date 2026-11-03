@@ -1,0 +1,10 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "[java]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "redhat.java",
+        "editor.detectIndentation": false,
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4
+    }
+}

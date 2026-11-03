@@ -1,13 +1,6 @@
-insomnia -> [SELF] like postman, getting its data into notion
-
-plane -> [COMPANY] task management tool my company uses (self hosted way). Pushing tasks from plane to notion with all the updates
-
-substack -> [SELF] people post blogs here, bringing a few users blogs which i add to my notion for east view of them.
-
-airflow -> [COMPANY] different kinds of DAGs running in my company, self hosted. If the top level information from dags can go to notion for someone high level to take a look. They can turn it on/off as well.
-
-victoria logs -> [COMPANY] my company's self hosted logging service, sending logs to notion and getting some insights (i don't know though, if the log volume is something which notion supports)
-
-wiki -> [COMPANY] my company uses this, bringing in that data to notion
-
-Expense Tracking -> [SELF] My own splitwise and text messages to track expenses in notion. Everytime a text message arrives or someone else adds and expense on notion which includes me that should go to notion
+insomnia  -> notion
+substack  -> notion
+airflow   -> notion
+incidents -> notion
+expenses  -> notion
+plane     -> notion

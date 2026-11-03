@@ -11,7 +11,8 @@ public final class MongoIdParser {
 
     public static ObjectId required(String value, String fieldName) {
         if (value == null || !ObjectId.isValid(value)) {
-            throw new ServiceException(HttpStatus.BAD_REQUEST, "INVALID_ID", fieldName + " must be a valid ID.");
+            throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_ID,
+                    fieldName + " must be a valid ID.");
         }
         return new ObjectId(value);
     }

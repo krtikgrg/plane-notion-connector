@@ -1,39 +1,119 @@
 package dev.planetonotion.integrations;
 
-import tools.jackson.databind.JsonNode;
+import dev.planetonotion.common.ApiErrorCodes;
 import dev.planetonotion.common.exceptions.IntegrationException;
+import dev.planetonotion.common.PlaneToNotionEnums.IntegrationProvider;
 import java.net.URI;
-import java.util.Locale;
 import java.util.function.Supplier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+/**
+ * Executes provider HTTP requests and translates failures into integration
+ * errors.
+ */
 @Component
 public class HttpService {
 
-    public JsonNode get(RestClient client, String service, String uri) {
-        return json(service, () -> client.get().uri(uri).retrieve().body(JsonNode.class));
+    /**
+     * Sends a GET request and deserializes its response body. The URI may be a
+     * relative endpoint path or an absolute URI string.
+     *
+     * @param client       provider-configured HTTP client
+     * @param provider     provider used to select integration error codes and
+     *                     messages
+     * @param uri          request URI or endpoint path
+     * @param responseType response body type
+     * @param <T>          response body type
+     * @return deserialized response body
+     * @throws IntegrationException if the provider request fails or returns no body
+     */
+    public <T> T get(RestClient client, IntegrationProvider provider, String uri, Class<T> responseType) {
+        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public JsonNode get(RestClient client, String service, URI uri) {
-        return json(service, () -> client.get().uri(uri).retrieve().body(JsonNode.class));
+    /**
+     * Sends a GET request using a type reference for generic response bodies,
+     * such as {@code Page<Project>}.
+     *
+     * @param client       provider-configured HTTP client
+     * @param provider     provider used to select integration error codes and
+     *                     messages
+     * @param uri          fully constructed request URI
+     * @param responseType response type, including any nested generic types
+     * @param <T>          response body type
+     * @return deserialized response body
+     * @throws IntegrationException if the provider request fails or returns no body
+     */
+    public <T> T get(RestClient client, IntegrationProvider provider, URI uri,
+            ParameterizedTypeReference<T> responseType) {
+        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public JsonNode post(RestClient client, String service, String uri, Object body) {
-        return json(service, () -> client.post().uri(uri).body(body).retrieve().body(JsonNode.class));
+    /**
+     * Sends a POST request with a body and deserializes the response.
+     *
+     * @param client       provider-configured HTTP client
+     * @param provider     provider used to select integration error codes and
+     *                     messages
+     * @param uri          request URI or endpoint path
+     * @param body         request body
+     * @param responseType response body type
+     * @param <T>          response body type
+     * @return deserialized response body
+     * @throws IntegrationException if the provider request fails or returns no body
+     */
+    public <T> T post(RestClient client, IntegrationProvider provider, String uri, Object body,
+            Class<T> responseType) {
+        return typed(provider, () -> client.post().uri(uri).body(body).retrieve().body(responseType));
     }
 
-    public JsonNode patch(RestClient client, String service, String uri, Object body) {
-        return json(service, () -> client.patch().uri(uri).body(body).retrieve().body(JsonNode.class));
+    /**
+     * Sends a PATCH request with a body and deserializes the response.
+     *
+     * @param client       provider-configured HTTP client
+     * @param provider     provider used to select integration error codes and
+     *                     messages
+     * @param uri          request URI or endpoint path
+     * @param body         request body
+     * @param responseType response body type
+     * @param <T>          response body type
+     * @return deserialized response body
+     * @throws IntegrationException if the provider request fails or returns no body
+     */
+    public <T> T patch(RestClient client, IntegrationProvider provider, String uri, Object body,
+            Class<T> responseType) {
+        return typed(provider, () -> client.patch().uri(uri).body(body).retrieve().body(responseType));
     }
 
-    public void patchWithoutResponse(RestClient client, String service, String uri, Object body) {
-        execute(service, () -> client.patch().uri(uri).body(body).retrieve().toBodilessEntity());
+    /**
+     * Sends a PATCH request when the endpoint does not return a response body.
+     *
+     * @param client   provider-configured HTTP client
+     * @param provider provider used to select integration error codes and messages
+     * @param uri      request URI or endpoint path
+     * @param body     request body
+     * @throws IntegrationException if the provider request fails
+     */
+    public void patchWithoutResponse(RestClient client, IntegrationProvider provider, String uri, Object body) {
+        execute(provider, () -> client.patch().uri(uri).body(body).retrieve().toBodilessEntity());
     }
 
-    public void delete(RestClient client, String service, String uri, String failureCode, String failureMessage) {
+    /**
+     * Sends a DELETE request and uses the supplied error details if it fails.
+     *
+     * @param client         provider-configured HTTP client
+     * @param provider       provider associated with the request
+     * @param uri            request URI or endpoint path
+     * @param failureCode    integration error code to report on failure
+     * @param failureMessage message to report on failure
+     * @throws IntegrationException if the request fails
+     */
+    public void delete(RestClient client, IntegrationProvider provider, String uri, String failureCode,
+            String failureMessage) {
         try {
             client.delete().uri(uri).retrieve().toBodilessEntity();
         } catch (RestClientResponseException exception) {
@@ -43,28 +123,57 @@ public class HttpService {
         }
     }
 
-    private JsonNode json(String service, Supplier<JsonNode> request) {
-        JsonNode response = execute(service, request);
+    /** Executes a response-producing request and rejects an empty response body. */
+    private <T> T typed(IntegrationProvider provider, Supplier<T> request) {
+        T response = execute(provider, request);
         if (response == null) {
-            String name = service.toLowerCase(Locale.ROOT);
-            throw new IntegrationException(service + "_RESPONSE_INVALID", 502,
-                    name.substring(0, 1).toUpperCase(Locale.ROOT) + name.substring(1) + " returned an empty response.");
+            throw new IntegrationException(IntegrationError.RESPONSE_INVALID.codeFor(provider), 502,
+                    provider.displayName() + " returned an empty response.");
         }
         return response;
     }
 
-    private <T> T execute(String service, Supplier<T> request) {
+    /**
+     * Converts provider HTTP and connection failures into stable integration
+     * errors.
+     */
+    private <T> T execute(IntegrationProvider provider, Supplier<T> request) {
         try {
             return request.get();
         } catch (RestClientResponseException exception) {
             int status = exception.getStatusCode().value();
-            throw new IntegrationException(service + "_API_ERROR", status,
-                    service.substring(0, 1) + service.substring(1).toLowerCase(Locale.ROOT)
-                            + " API request failed (HTTP " + status + ").");
+            throw new IntegrationException(IntegrationError.API_ERROR.codeFor(provider), status,
+                    provider.displayName() + " API request failed (HTTP " + status + ").");
         } catch (RestClientException exception) {
-            String label = service.substring(0, 1) + service.substring(1).toLowerCase(Locale.ROOT);
-            throw new IntegrationException(service + "_UNAVAILABLE", 0,
-                    "Could not connect to the configured " + label + " API.");
+            throw new IntegrationException(IntegrationError.UNAVAILABLE.codeFor(provider), 0,
+                    "Could not connect to the configured " + provider.displayName() + " API.");
+        }
+    }
+
+    /**
+     * Shared failure categories paired with the public error code for each
+     * provider.
+     */
+    private enum IntegrationError {
+        RESPONSE_INVALID(ApiErrorCodes.Plane.RESPONSE_INVALID, ApiErrorCodes.Notion.RESPONSE_INVALID),
+        API_ERROR(ApiErrorCodes.Plane.API_ERROR, ApiErrorCodes.Notion.API_ERROR),
+        UNAVAILABLE(ApiErrorCodes.Plane.UNAVAILABLE, ApiErrorCodes.Notion.UNAVAILABLE);
+
+        private final String planeCode;
+        private final String notionCode;
+
+        /** Associates one failure category with its public code for each provider. */
+        IntegrationError(String planeCode, String notionCode) {
+            this.planeCode = planeCode;
+            this.notionCode = notionCode;
+        }
+
+        /** Returns this category's public error code for the specified provider. */
+        private String codeFor(IntegrationProvider provider) {
+            return switch (provider) {
+                case PLANE -> planeCode;
+                case NOTION -> notionCode;
+            };
         }
     }
 }

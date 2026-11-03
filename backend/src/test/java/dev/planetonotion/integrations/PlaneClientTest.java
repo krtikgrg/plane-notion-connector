@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import dev.planetonotion.common.IntegrationProperties;
+import dev.planetonotion.common.exceptions.IntegrationException;
 import dev.planetonotion.TestData;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,7 +24,8 @@ class PlaneClientTest {
 
     @AfterEach
     void verifyRequests() {
-        if (server != null) server.verify();
+        if (server != null)
+            server.verify();
     }
 
     @Test
@@ -39,7 +40,7 @@ class PlaneClientTest {
             assertThat(request.getURI().getPath()).isEqualTo("/api/v2/workspaces/workspace/work-items/DEMO-7/");
         }).andRespond(withStatus(HttpStatus.NOT_FOUND));
         assertThatThrownBy(() -> client.getWorkItemByIdentifier("workspace", "DEMO-7"))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class);
+                .isInstanceOf(IntegrationException.class);
     }
 
     @Test
@@ -53,7 +54,7 @@ class PlaneClientTest {
                 .isEqualTo("/api/v2/workspaces/workspace/projects/project-id/work-items/item-id/"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
         assertThatThrownBy(() -> client.getWorkItem("workspace", "project-id", "item-id"))
-                .isInstanceOf(dev.planetonotion.common.exceptions.IntegrationException.class);
+                .isInstanceOf(IntegrationException.class);
     }
 
     @Test
@@ -77,7 +78,7 @@ class PlaneClientTest {
         List<String> itemIds = new ArrayList<>();
         client.forEachProjectWorkItemPage("workspace", "project-id",
                 Instant.parse("2026-10-31T09:59:59.900Z"), Instant.parse("2026-10-31T10:00:00Z"),
-                page -> page.forEach(item -> itemIds.add(item.path("id").asString())));
+                page -> page.forEach(item -> itemIds.add(item.id())));
 
         assertThat(itemIds).containsExactly("item-1", "item-2");
     }
