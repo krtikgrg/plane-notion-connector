@@ -30,7 +30,10 @@ import static dev.planetonotion.integrations.NotionApiConstants.QueryParameters.
 import static dev.planetonotion.integrations.NotionApiConstants.QueryParameters.START_CURSOR;
 import static dev.planetonotion.integrations.NotionApiConstants.VERSION;
 
-/** Typed Notion block operations for workspace and project summaries. */
+/**
+ * Creates and synchronizes Notion block content used for workspace and project
+ * summaries, including their callouts and tabular work-item summaries.
+ */
 @Component
 public class NotionBlockClient {
 
@@ -40,16 +43,22 @@ public class NotionBlockClient {
     private final HttpService httpService;
     private final IntegrationProperties properties;
 
+    /**
+     * Creates the client using the configured Notion API settings and shared HTTP
+     * service.
+     */
     @Autowired
     public NotionBlockClient(IntegrationProperties properties, HttpService httpService,
             IntegrationRestClientFactory clientFactory) {
         this(properties, clientFactory.builder(properties.notionApiBaseUrl().toString()), httpService);
     }
 
+    /** Creates a client with a supplied builder for integration tests. */
     NotionBlockClient(IntegrationProperties properties, RestClient.Builder builder) {
         this(properties, builder, new HttpService());
     }
 
+    /** Configures the API base URL, authorization header, and API version. */
     private NotionBlockClient(IntegrationProperties properties, RestClient.Builder builder, HttpService httpService) {
         this.properties = properties;
         this.httpService = httpService;
@@ -59,6 +68,19 @@ public class NotionBlockClient {
                 .build();
     }
 
+    /**
+     * Creates or updates the summary section on a Notion page. The section has a
+     * heading, a callout, and a table; existing rows are updated, appended,
+     * removed, or rebuilt as needed to match the supplied values.
+     *
+     * @param pageId         Notion page whose block children contain the summary
+     * @param heading        current section heading
+     * @param legacyHeadings earlier headings that identify the same section
+     * @param summaryPrefix  prefix used to find obsolete summary paragraphs
+     * @param summary        text displayed in the section callout
+     * @param columns        table header labels
+     * @param rows           table data rows, with values in column order
+     */
     public void upsertPageTableSummary(String pageId, String heading, List<String> legacyHeadings,
             String summaryPrefix, String summary, List<String> columns, List<List<String>> rows) {
         List<NotionResponseModels.Block> pageBlocks = readChildren(pageId);
@@ -94,12 +116,17 @@ public class NotionBlockClient {
         synchronizeTable(pageId, callout.id(), table, columns, rows, tableWidthChanged);
     }
 
+    /**
+     * Archives the Notion page whose block children are identified by
+     * {@code pageId}.
+     */
     public void archivePage(String pageId) {
         requireToken();
         httpService.delete(client, IntegrationProvider.NOTION, BLOCKS + segment(pageId),
                 ApiErrorCodes.Notion.ARCHIVE_FAILED, "Notion could not archive the temporary project page.");
     }
 
+    /** Reads every child block, following Notion's cursor pagination. */
     private List<NotionResponseModels.Block> readChildren(String blockId) {
         List<NotionResponseModels.Block> blocks = new ArrayList<>();
         String cursor = null;
@@ -116,6 +143,7 @@ public class NotionBlockClient {
         return blocks;
     }
 
+    /** Returns the blocks after a section heading up to the next heading. */
     private List<NotionResponseModels.Block> sectionBlocks(
             List<NotionResponseModels.Block> blocks, String headingId) {
         int start = -1;
@@ -137,10 +165,12 @@ public class NotionBlockClient {
         return result;
     }
 
+    /** Returns whether the block is one of Notion's heading block types. */
     private boolean isHeading(NotionResponseModels.Block block) {
         return block.type() != null && block.type().startsWith("heading_");
     }
 
+    /** Joins the visible rich-text content for supported summary block types. */
     private String blockText(NotionResponseModels.Block block) {
         List<NotionResponseModels.RichTextResponse> text = switch (block.type()) {
             case "heading_2" -> block.heading2() == null ? List.of() : block.heading2().richText();
@@ -155,11 +185,13 @@ public class NotionBlockClient {
         return result.toString();
     }
 
+    /** Builds a Notion table row, bolding each cell when it is the header row. */
     private TableRow tableRow(List<String> cells, boolean header) {
         return new TableRow(cells.stream().map(cell -> List.of(header ? RichText.bold(cell) : RichText.plain(cell)))
                 .toList());
     }
 
+    /** Prepends the column labels as the first row of the desired table. */
     private List<List<String>> withHeader(List<String> columns, List<List<String>> rows) {
         List<List<String>> result = new ArrayList<>();
         result.add(columns);
@@ -167,6 +199,7 @@ public class NotionBlockClient {
         return result;
     }
 
+    /** Chooses row-level updates or a full table rebuild based on the changes. */
     private void synchronizeTable(String pageId, String afterBlockId,
             NotionResponseModels.Block existingTable,
             List<String> columns, List<List<String>> rows, boolean tableWidthChanged) {
@@ -200,6 +233,7 @@ public class NotionBlockClient {
         rebuildTable(pageId, afterBlockId, existingTable, columns.size(), desiredRows);
     }
 
+    /** Patches only rows whose cell contents differ from the desired table. */
     private void updateChangedRows(
             List<NotionResponseModels.Block> existingRows,
             List<List<String>> desiredRows, List<Integer> changedRows) {
@@ -208,6 +242,9 @@ public class NotionBlockClient {
                     UpdateBlockRequest.tableRow(tableRow(desiredRows.get(index), index == 0)));
     }
 
+    /**
+     * Appends desired rows that do not yet exist, respecting Notion's batch limit.
+     */
     private void appendMissingRows(String tableId, int existingRowCount, List<List<String>> desiredRows) {
         if (desiredRows.size() <= existingRowCount)
             return;
@@ -217,6 +254,7 @@ public class NotionBlockClient {
         appendBatched(tableId, additions);
     }
 
+    /** Archives rows beyond the desired table length. */
     private void removeExtraRows(
             List<NotionResponseModels.Block> existingRows,
             int desiredRowCount) {
@@ -224,6 +262,9 @@ public class NotionBlockClient {
             trashBlock(existingRows.get(i));
     }
 
+    /**
+     * Creates a replacement table and archives the previous table after success.
+     */
     private void rebuildTable(String pageId, String afterBlockId,
             NotionResponseModels.Block oldTable,
             int width, List<List<String>> desiredRows) {
@@ -246,6 +287,7 @@ public class NotionBlockClient {
             trashBlock(oldTable);
     }
 
+    /** Converts table values to Notion rows, marking only the first as a header. */
     private List<TableRow> tableRows(List<List<String>> values) {
         List<TableRow> result = new ArrayList<>(values.size());
         for (int i = 0; i < values.size(); i++)
@@ -253,6 +295,10 @@ public class NotionBlockClient {
         return result;
     }
 
+    /**
+     * Compares an existing Notion table row's visible cell text with desired
+     * values.
+     */
     private boolean rowMatches(
             NotionResponseModels.Block existing,
             List<String> desired) {
@@ -271,10 +317,12 @@ public class NotionBlockClient {
         return true;
     }
 
+    /** Returns how many append requests are needed for the given block count. */
     private int batchesFor(int numberOfBlocks) {
         return (numberOfBlocks + NOTION_BLOCK_APPEND_BATCH_SIZE - 1) / NOTION_BLOCK_APPEND_BATCH_SIZE;
     }
 
+    /** Appends blocks in batches no larger than Notion's supported limit. */
     private void appendBatched(String parentId, List<Block> blocks) {
         for (int start = 0; start < blocks.size(); start += NOTION_BLOCK_APPEND_BATCH_SIZE) {
             int end = Math.min(blocks.size(), start + NOTION_BLOCK_APPEND_BATCH_SIZE);
@@ -282,35 +330,44 @@ public class NotionBlockClient {
         }
     }
 
+    /** Archives a block by setting its Notion archived state. */
     private void trashBlock(NotionResponseModels.Block block) {
         patch(block.id(), UpdateBlockRequest.trash());
     }
 
+    /** Appends blocks to a parent without specifying a sibling position. */
     private BlockAppend appendBlocks(String parentId, List<Block> blocks) {
         return appendBlocks(parentId, blocks, null);
     }
 
+    /** Appends blocks to a parent, optionally placing them after a given block. */
     private BlockAppend appendBlocks(String parentId, List<Block> blocks, String afterBlockId) {
         Position position = afterBlockId == null ? null : new Position("after_block", new AfterBlock(afterBlockId));
         return patchForResponse(BLOCKS + segment(parentId) + CHILDREN,
                 new AppendBlockChildrenRequest(blocks, position), BlockAppend.class);
     }
 
+    /**
+     * Sends a Notion GET request after verifying that the connection token exists.
+     */
     private <T> T get(String path, Class<T> responseType) {
         requireToken();
         return httpService.get(client, IntegrationProvider.NOTION, path, responseType);
     }
 
+    /** Sends a Notion PATCH request for a block when no response body is needed. */
     private void patch(String blockId, Object body) {
         requireToken();
         httpService.patchWithoutResponse(client, IntegrationProvider.NOTION, BLOCKS + segment(blockId), body);
     }
 
+    /** Sends a Notion PATCH request and decodes its response body. */
     private <T> T patchForResponse(String path, Object body, Class<T> responseType) {
         requireToken();
         return httpService.patch(client, IntegrationProvider.NOTION, path, body, responseType);
     }
 
+    /** Fails early when no Notion connection token is configured. */
     private void requireToken() {
         if (properties.notionConnectionToken() == null || properties.notionConnectionToken().isBlank()) {
             throw new IntegrationException(ApiErrorCodes.Notion.TOKEN_MISSING, 0,
@@ -318,6 +375,7 @@ public class NotionBlockClient {
         }
     }
 
+    /** Encodes a value so it can safely occupy one URL path segment. */
     private String segment(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }

@@ -30,7 +30,11 @@ import static dev.planetonotion.integrations.PlaneApiConstants.QueryValues.*;
 import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.PROJECTS_SEGMENT;
 import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.ISSUES_SEGMENT;
 
-/** Typed HTTP boundary for Plane project, work-item, state, and label APIs. */
+/**
+ * Typed HTTP boundary for Plane project, work-item, state, and label APIs.
+ * Handles provider URL construction and paginates list responses before passing
+ * them to application code.
+ */
 @Component
 public class PlaneClient {
 
@@ -49,16 +53,19 @@ public class PlaneClient {
     private final HttpService httpService;
     private final IntegrationProperties properties;
 
+    /** Creates the configured Plane API client used by the application. */
     @Autowired
     public PlaneClient(IntegrationProperties properties, HttpService httpService,
             IntegrationRestClientFactory clientFactory) {
         this(properties, clientFactory.builder(properties.planeApiBaseUrl().toString()), httpService);
     }
 
+    /** Creates a client with a supplied builder for integration tests. */
     PlaneClient(IntegrationProperties properties, RestClient.Builder builder) {
         this(properties, builder, new HttpService());
     }
 
+    /** Configures the base URL, API key, and shared HTTP request handling. */
     private PlaneClient(IntegrationProperties properties, RestClient.Builder builder, HttpService httpService) {
         this.properties = properties;
         this.httpService = httpService;
@@ -68,10 +75,17 @@ public class PlaneClient {
                 .build();
     }
 
+    /** Checks Plane connectivity by requesting the authenticated user's details. */
     public void testConnection() {
         get(USERS_ME, ConnectionUser.class);
     }
 
+    /**
+     * Fetches every project page in a workspace, including archived projects.
+     *
+     * @param workspaceSlug Plane workspace slug
+     * @param pageConsumer  receives each page of projects as it arrives
+     */
     public void forEachProjectPage(String workspaceSlug, Consumer<List<Project>> pageConsumer) {
         Map<String, String> query = new LinkedHashMap<>();
         query.put(INCLUDE_ARCHIVED, TRUE);
@@ -80,11 +94,22 @@ public class PlaneClient {
                 pageConsumer, workspaceSlug);
     }
 
+    /** Reads one project by its Plane ID within a workspace. */
     public Project getProject(String workspaceSlug, String projectId) {
         return get(WORKSPACES + segment(workspaceSlug) + PROJECTS + segment(projectId) + "/",
                 Project.class);
     }
 
+    /**
+     * Fetches active, non-draft work items in a project and passes each result
+     * page to the consumer. Optional timestamps bound the incremental scan.
+     *
+     * @param workspaceSlug Plane workspace slug
+     * @param projectId     Plane project ID
+     * @param updatedAtFrom inclusive lower bound for {@code updated_at}, or null
+     * @param updatedAtTo   inclusive upper bound for {@code updated_at}, or null
+     * @param pageConsumer  receives each page of work items as it arrives
+     */
     public void forEachProjectWorkItemPage(String workspaceSlug, String projectId, Instant updatedAtFrom,
             Instant updatedAtTo, Consumer<List<WorkItem>> pageConsumer) {
         Map<String, String> query = new LinkedHashMap<>();
@@ -103,34 +128,41 @@ public class PlaneClient {
                 pageConsumer, workspaceSlug, projectId);
     }
 
+    /** Looks up one work item by its human-readable identifier in a workspace. */
     public WorkItem getWorkItemByIdentifier(String workspaceSlug, String identifier) {
         return get(WORKSPACES + segment(workspaceSlug) + WORK_ITEMS + segment(identifier)
                 + "/?" + EXPAND + "=" + WORK_ITEM_EXPANSIONS, WorkItem.class);
     }
 
+    /** Reads one work item by its project ID and Plane work-item ID. */
     public WorkItem getWorkItem(String workspaceSlug, String projectId, String workItemId) {
         return get(WORKSPACES + segment(workspaceSlug) + PROJECTS + segment(projectId) + WORK_ITEMS
                 + segment(workItemId) + "/?" + EXPAND + "=" + WORK_ITEM_EXPANSIONS, WorkItem.class);
     }
 
+    /** Builds the user-facing Plane URL for a project. */
     public String projectUrl(String workspaceSlug, String projectId) {
         return appBaseUrl() + "/" + segment(workspaceSlug) + "/" + PROJECTS_SEGMENT + "/" + segment(projectId);
     }
 
+    /** Builds the user-facing Plane URL for a work item. */
     public String workItemUrl(String workspaceSlug, String projectId, String workItemId) {
         return projectUrl(workspaceSlug, projectId) + "/" + ISSUES_SEGMENT + "/" + segment(workItemId);
     }
 
+    /** Lists every workflow state configured for a project. */
     public List<State> listWorkItemStates(String workspaceSlug, String projectId) {
         return getAllPages(WORKSPACES + "{workspace}" + PROJECTS + "{project}" + STATES, Map.of(), STATE_PAGE_TYPE,
                 workspaceSlug, projectId);
     }
 
+    /** Lists every label configured for a project. */
     public List<Label> listWorkItemLabels(String workspaceSlug, String projectId) {
         return getAllPages(WORKSPACES + "{workspace}" + PROJECTS + "{project}" + LABELS, Map.of(), LABEL_PAGE_TYPE,
                 workspaceSlug, projectId);
     }
 
+    /** Collects all pages from a list endpoint into one list. */
     private <T> List<T> getAllPages(String pathTemplate, Map<String, String> filters,
             ParameterizedTypeReference<Page<T>> responseType, Object... pathVariables) {
         java.util.ArrayList<T> results = new java.util.ArrayList<>();
@@ -138,6 +170,10 @@ public class PlaneClient {
         return results;
     }
 
+    /**
+     * Reads a list response at a time, following either its offset or cursor
+     * pagination details until no further results remain.
+     */
     private <T> void forEachPage(String pathTemplate, Map<String, String> filters,
             ParameterizedTypeReference<Page<T>> responseType, Consumer<List<T>> pageConsumer,
             Object... pathVariables) {
@@ -191,6 +227,7 @@ public class PlaneClient {
         }
     }
 
+    /** Extracts an offset from a next-link query or advances by one page. */
     private int parseOffset(String next, int currentOffset) {
         try {
             String value = URI.create(next).getQuery();
@@ -208,6 +245,9 @@ public class PlaneClient {
         }
     }
 
+    /**
+     * Sends a GET request for a concrete response type after checking the API key.
+     */
     private <T> T get(String path, Class<T> responseType) {
         if (properties.planePersonalAccessToken() == null || properties.planePersonalAccessToken().isBlank()) {
             throw new IntegrationException(ApiErrorCodes.Plane.TOKEN_MISSING, 0,
@@ -218,6 +258,9 @@ public class PlaneClient {
                 responseType);
     }
 
+    /**
+     * Sends a GET request for a generic response type after checking the API key.
+     */
     private <T> T get(URI uri, ParameterizedTypeReference<T> responseType) {
         if (properties.planePersonalAccessToken() == null || properties.planePersonalAccessToken().isBlank()) {
             throw new IntegrationException(ApiErrorCodes.Plane.TOKEN_MISSING, 0,
@@ -226,10 +269,12 @@ public class PlaneClient {
         return httpService.get(client, IntegrationProvider.PLANE, uri, responseType);
     }
 
+    /** Encodes a value so it can safely occupy one URL path segment. */
     private String segment(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
+    /** Returns the configured Plane app URL without a trailing slash. */
     private String appBaseUrl() {
         return properties.planeAppBaseUrl().toString().replaceAll("/$", "");
     }
