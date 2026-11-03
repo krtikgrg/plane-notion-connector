@@ -14,14 +14,16 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class HttpService {
 
+    /** Uses a relative endpoint path or an absolute URI string. */
     public <T> T get(RestClient client, IntegrationProvider provider, String uri, Class<T> responseType) {
         return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
     }
 
-    public <T> T get(RestClient client, IntegrationProvider provider, URI uri, Class<T> responseType) {
-        return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
-    }
-
+    /**
+     * Reads a generic response, such as {@code Page<Project>}, whose nested type
+     * cannot be represented by {@code Class<T>} because Java erases type
+     * parameters.
+     */
     public <T> T get(RestClient client, IntegrationProvider provider, URI uri,
             ParameterizedTypeReference<T> responseType) {
         return typed(provider, () -> client.get().uri(uri).retrieve().body(responseType));
@@ -55,9 +57,8 @@ public class HttpService {
     private <T> T typed(IntegrationProvider provider, Supplier<T> request) {
         T response = execute(provider, request);
         if (response == null) {
-            String label = label(provider);
-            throw new IntegrationException(errorCode(provider, IntegrationError.RESPONSE_INVALID), 502,
-                    label + " returned an empty response.");
+            throw new IntegrationException(IntegrationError.RESPONSE_INVALID.codeFor(provider), 502,
+                    provider.displayName() + " returned an empty response.");
         }
         return response;
     }
@@ -67,34 +68,36 @@ public class HttpService {
             return request.get();
         } catch (RestClientResponseException exception) {
             int status = exception.getStatusCode().value();
-            throw new IntegrationException(errorCode(provider, IntegrationError.API_ERROR), status,
-                    label(provider) + " API request failed (HTTP " + status + ").");
+            throw new IntegrationException(IntegrationError.API_ERROR.codeFor(provider), status,
+                    provider.displayName() + " API request failed (HTTP " + status + ").");
         } catch (RestClientException exception) {
-            throw new IntegrationException(errorCode(provider, IntegrationError.UNAVAILABLE), 0,
-                    "Could not connect to the configured " + label(provider) + " API.");
+            throw new IntegrationException(IntegrationError.UNAVAILABLE.codeFor(provider), 0,
+                    "Could not connect to the configured " + provider.displayName() + " API.");
         }
     }
 
-    private String errorCode(IntegrationProvider provider, IntegrationError error) {
-        return switch (provider) {
-            case PLANE -> switch (error) {
-                case RESPONSE_INVALID -> ApiErrorCodes.Plane.RESPONSE_INVALID;
-                case API_ERROR -> ApiErrorCodes.Plane.API_ERROR;
-                case UNAVAILABLE -> ApiErrorCodes.Plane.UNAVAILABLE;
-            };
-            case NOTION -> switch (error) {
-                case RESPONSE_INVALID -> ApiErrorCodes.Notion.RESPONSE_INVALID;
-                case API_ERROR -> ApiErrorCodes.Notion.API_ERROR;
-                case UNAVAILABLE -> ApiErrorCodes.Notion.UNAVAILABLE;
-            };
-        };
-    }
-
-    private String label(IntegrationProvider provider) {
-        return provider.name().charAt(0) + provider.name().substring(1).toLowerCase(java.util.Locale.ROOT);
-    }
-
+    /**
+     * Shared failure categories paired with the public error code for each
+     * provider.
+     */
     private enum IntegrationError {
-        RESPONSE_INVALID, API_ERROR, UNAVAILABLE
+        RESPONSE_INVALID(ApiErrorCodes.Plane.RESPONSE_INVALID, ApiErrorCodes.Notion.RESPONSE_INVALID),
+        API_ERROR(ApiErrorCodes.Plane.API_ERROR, ApiErrorCodes.Notion.API_ERROR),
+        UNAVAILABLE(ApiErrorCodes.Plane.UNAVAILABLE, ApiErrorCodes.Notion.UNAVAILABLE);
+
+        private final String planeCode;
+        private final String notionCode;
+
+        IntegrationError(String planeCode, String notionCode) {
+            this.planeCode = planeCode;
+            this.notionCode = notionCode;
+        }
+
+        private String codeFor(IntegrationProvider provider) {
+            return switch (provider) {
+                case PLANE -> planeCode;
+                case NOTION -> notionCode;
+            };
+        }
     }
 }

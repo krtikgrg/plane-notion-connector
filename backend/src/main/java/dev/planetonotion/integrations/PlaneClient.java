@@ -214,7 +214,8 @@ public class PlaneClient {
                     ApiErrorMessages.Plane.TOKEN_MISSING);
         }
         return httpService.get(client, IntegrationProvider.PLANE,
-                URI.create(properties.planeApiBaseUrl().toString().replaceAll("/$", "") + path), responseType);
+                URI.create(properties.planeApiBaseUrl().toString().replaceAll("/$", "") + path).toString(),
+                responseType);
     }
 
     private <T> T get(URI uri, ParameterizedTypeReference<T> responseType) {

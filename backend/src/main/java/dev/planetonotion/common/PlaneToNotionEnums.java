@@ -116,8 +116,19 @@ public final class PlaneToNotionEnums {
     /** Provider identity used to route API handling and errors. */
     public enum IntegrationProvider {
         /** Plane project-tracking API. */
-        PLANE,
+        PLANE("Plane"),
         /** Notion workspace and content API. */
-        NOTION
+        NOTION("Notion");
+
+        private final String displayName;
+
+        IntegrationProvider(String displayName) {
+            this.displayName = displayName;
+        }
+
+        /** Human-readable provider name for messages shown outside the code. */
+        public String displayName() {
+            return displayName;
+        }
     }
 }
