@@ -35,6 +35,9 @@ import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.HTTPS_SCH
 import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.ISSUES_SEGMENT;
 import static dev.planetonotion.integrations.PlaneApiConstants.TaskUrl.PROJECTS_SEGMENT;
 
+/**
+ * Validates manual sync requests and stores them as queued sync jobs.
+ */
 @Service
 public class SyncJobService {
 
@@ -44,6 +47,7 @@ public class SyncJobService {
     private final PlaneClient planeClient;
     private final IntegrationProperties integrationProperties;
 
+    /** Creates the job service with repositories and Plane access. */
     public SyncJobService(JobRepository jobRepository, SyncConfigRepository configRepository,
             PlaneProjectRepository projectRepository, PlaneClient planeClient,
             IntegrationProperties integrationProperties) {
@@ -54,7 +58,15 @@ public class SyncJobService {
         this.integrationProperties = integrationProperties;
     }
 
+    /**
+     * Queues a manual sync for every eligible work item in a configured project.
+     *
+     * @param configId            config whose project should be synchronized
+     * @param forceArchivedConfig whether to allow a run for an archived config
+     * @return the saved manual sync job
+     */
     public SyncJobDocument enqueueProject(ObjectId configId, boolean forceArchivedConfig) {
+        // Load config and validate run eligibility.
         SyncConfigDocument config = config(configId);
         validateArchivedConfig(config, forceArchivedConfig);
         validateConfigQueueable(config);
@@ -62,12 +74,23 @@ public class SyncJobService {
                 null, forceArchivedConfig);
     }
 
+    /**
+     * Resolves a Plane task URL and queues its work-item sync. Tasks without a
+     * matching config are queued for the shared ad hoc Notion destination.
+     *
+     * @param taskUrl             Plane URL for a task or work item
+     * @param requestedConfigId   optional config selected by the caller
+     * @param forceArchivedConfig whether to allow a run for an archived config
+     * @return the saved manual sync job
+     */
     public SyncJobDocument enqueueTask(String taskUrl, ObjectId requestedConfigId, boolean forceArchivedConfig) {
+        // Resolve the task URL through Plane.
         TaskUrl taskUrlParts = parseTaskUrl(taskUrl);
         WorkItem item = taskUrlParts.identifier() != null
                 ? planeClient.getWorkItemByIdentifier(taskUrlParts.workspaceSlug(), taskUrlParts.identifier())
                 : planeClient.getWorkItem(taskUrlParts.workspaceSlug(), taskUrlParts.projectId(),
                         taskUrlParts.workItemId());
+        // Reject drafts and archived work items.
         if (Boolean.TRUE.equals(item.isDraft())) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.DRAFT_WORK_ITEM,
                     ApiErrorMessages.Application.DRAFT_WORK_ITEM);
@@ -77,6 +100,7 @@ public class SyncJobService {
                     ApiErrorMessages.Application.ARCHIVED_WORK_ITEM);
         }
 
+        // Validate task identity and URL project.
         String projectId = item.projectId() == null ? taskUrlParts.projectId() : item.projectId();
         String workItemId = item.id() == null ? "" : item.id();
         if (projectId.isBlank() || workItemId.isBlank()) {
@@ -88,10 +112,12 @@ public class SyncJobService {
                     "The task URL does not match the work item's Plane project.");
         }
 
+        // Cache project and find its config.
         PlaneProjectDocument project = findOrCacheProject(taskUrlParts.workspaceSlug(), projectId);
         SyncConfigDocument config = configRepository.findByPlaneProjectDocumentId(project.id()).orElse(null);
         if (requestedConfigId != null) {
             SyncConfigDocument requested = config(requestedConfigId);
+            // Match task project to requested config.
             if (!requested.planeProjectDocumentId().equals(project.id())) {
                 throw new ServiceException(HttpStatus.BAD_REQUEST,
                         ApiErrorCodes.Application.TASK_PROJECT_MISMATCH,
@@ -100,6 +126,7 @@ public class SyncJobService {
             config = requested;
         }
 
+        // Queue directly when no config exists.
         if (config == null) {
             return saveJob(null, project.id(), SyncScope.WORK_ITEM,
                     new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
@@ -110,13 +137,31 @@ public class SyncJobService {
                 new ManualSyncJobDocument.PlaneWorkItemReference(taskUrl, workItemId), forceArchivedConfig);
     }
 
+    /**
+     * Lists jobs using the supplied filters and pagination cursor.
+     *
+     * @param configId    optional config ID filter
+     * @param jobStatus   optional job status filter
+     * @param jobType     optional job type filter
+     * @param createdFrom optional inclusive creation-time lower bound
+     * @param createdTo   optional exclusive creation-time upper bound
+     * @param beforeId    optional cursor for the next page
+     * @param pageSize    maximum jobs in the returned page
+     * @return a page of matching jobs
+     */
     public JobRepository.JobPage list(ObjectId configId, JobStatus jobStatus, JobType jobType,
             Instant createdFrom, Instant createdTo, ObjectId beforeId, int pageSize) {
         return jobRepository.findJobs(configId, jobStatus, jobType, createdFrom, createdTo, beforeId, pageSize);
     }
 
+    /**
+     * Finds the earliest pending scheduled run for each config.
+     *
+     * @return config IDs mapped to their next run times
+     */
     public Map<String, Instant> nextScheduledRuns() {
         Map<String, Instant> nextRuns = new LinkedHashMap<>();
+        // Keep earliest pending run per config.
         jobRepository.findAllPendingScheduledJobs().forEach(job -> {
             if (job instanceof ScheduledSyncJobDocument scheduled
                     && job.configId() != null && scheduled.scheduledFor() != null) {
@@ -127,6 +172,12 @@ public class SyncJobService {
         return nextRuns;
     }
 
+    /**
+     * Finds a queued or completed job by database ID.
+     *
+     * @param jobId sync job MongoDB ID
+     * @return the matching sync job
+     */
     public SyncJobDocument get(ObjectId jobId) {
         return jobRepository.findById(jobId)
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
@@ -134,8 +185,10 @@ public class SyncJobService {
                         "The sync run was not found."));
     }
 
+    /** Finds a cached project or fetches and stores it from Plane. */
     private PlaneProjectDocument findOrCacheProject(String workspaceSlug, String projectId) {
         return projectRepository.findByPlaneWorkspaceSlugAndPlaneProjectId(workspaceSlug, projectId).orElseGet(() -> {
+            // Fetch and cache project on demand.
             Project source = planeClient.getProject(workspaceSlug, projectId);
             Instant now = Instant.now();
             boolean isArchived = source.archivedAt() != null || Boolean.TRUE.equals(source.isArchived());
@@ -146,6 +199,7 @@ public class SyncJobService {
         });
     }
 
+    /** Finds a config or raises the standard not-found error. */
     private SyncConfigDocument config(ObjectId configId) {
         return configRepository.findById(configId)
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
@@ -153,6 +207,7 @@ public class SyncJobService {
                         ApiErrorMessages.Application.CONFIG_NOT_FOUND));
     }
 
+    /** Requires explicit force permission to run archived configs. */
     private void validateArchivedConfig(SyncConfigDocument config, boolean forceArchivedConfig) {
         if (config.status() == ConfigStatus.ARCHIVED && !forceArchivedConfig) {
             throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ARCHIVED,
@@ -160,11 +215,14 @@ public class SyncJobService {
         }
     }
 
+    /** Rejects configs still provisioning or missing Notion destinations. */
     private void validateConfigQueueable(SyncConfigDocument config) {
+        // Wait for provisioning before sync queueing.
         if (config.operationStatus() == ConfigOperationStatus.PROVISIONING) {
             throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_PROVISIONING,
                     "Wait for the Notion destination to finish provisioning before queueing a sync.");
         }
+        // Require complete Notion destination identifiers.
         PlaneProjectDocument project = projectRepository.findById(config.planeProjectDocumentId()).orElse(null);
         if (project == null || project.notionProjectPageId() == null || project.notionDatabaseId() == null
                 || project.notionDataSourceId() == null) {
@@ -173,9 +231,11 @@ public class SyncJobService {
         }
     }
 
+    /** Saves a manual job, holding it during config updates. */
     private SyncJobDocument saveJob(SyncConfigDocument config, ObjectId projectRef, SyncScope scope,
             ManualSyncJobDocument.PlaneWorkItemReference planeWorkItem, boolean forceArchived) {
         Instant now = Instant.now();
+        // Hold manual jobs during config updates.
         JobStatus initialStatus = config != null
                 && config.operationStatus() == ConfigOperationStatus.UPDATING
                         ? JobStatus.HELD
@@ -185,27 +245,33 @@ public class SyncJobService {
                 null, null, 0, SyncJobResult.empty(), null, null, now, now));
     }
 
+    /** Parses supported Plane task URL formats and validates their host. */
     private TaskUrl parseTaskUrl(String value) {
+        // Parse and validate the task URL.
         URI url;
         try {
             url = URI.create(value);
         } catch (RuntimeException exception) {
             throw invalidTaskUrl();
         }
+        // Require matching Plane host and scheme.
         if (url.getHost() == null || !url.getHost().equalsIgnoreCase(integrationProperties.planeAppBaseUrl().getHost())
                 || !(HTTPS_SCHEME.equalsIgnoreCase(url.getScheme()) || HTTP_SCHEME.equalsIgnoreCase(url.getScheme()))) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Plane.INVALID_HOST,
                     "Enter a task URL from the configured Plane instance.");
         }
+        // Read workspace and identify URL format.
         String[] path = url.getPath().split("/");
         if (path.length < 3 || path[1].isBlank())
             throw invalidTaskUrl();
         String workspace = path[1];
+        // Return only recognized task URL formats.
         for (int index = 2; index < path.length; index++) {
             if (BROWSE_SEGMENT.equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
                 return new TaskUrl(workspace, null, path[index + 1], null);
             }
             if (ISSUES_SEGMENT.equals(path[index]) && index + 1 < path.length && !path[index + 1].isBlank()) {
+                // Find project segment before issue identifier.
                 String project = null;
                 for (int prior = 2; prior < index; prior++) {
                     if (PROJECTS_SEGMENT.equals(path[prior]) && prior + 1 < index)
@@ -218,11 +284,13 @@ public class SyncJobService {
         throw invalidTaskUrl();
     }
 
+    /** Creates the standard invalid-task-URL request error. */
     private ServiceException invalidTaskUrl() {
         return new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_TASK_URL,
                 "Enter a Plane task URL with a workspace and task identifier.");
     }
 
+    /** Parsed workspace, project, and task identifiers from a Plane URL. */
     private record TaskUrl(String workspaceSlug, String projectId, String identifier, String workItemId) {
     }
 }

@@ -27,6 +27,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+/**
+ * Creates and updates the Notion workspace hierarchy and its sync summaries.
+ */
 @Service
 public class NotionHierarchyService {
 
@@ -40,6 +43,7 @@ public class NotionHierarchyService {
     private final NotionBlockClient notionBlockClient;
     private final IntegrationProperties integrationProperties;
 
+    /** Creates the service with storage and Notion clients. */
     public NotionHierarchyService(PlaneWorkspaceRepository workspaceRepository,
             PlaneProjectRepository projectRepository,
             SyncConfigRepository configRepository, SyncMappingRepository mappingRepository, NotionClient notionClient,
@@ -53,13 +57,23 @@ public class NotionHierarchyService {
         this.integrationProperties = integrationProperties;
     }
 
+    /**
+     * Returns the stored Notion page for a Plane workspace, creating and saving
+     * one when it does not exist.
+     *
+     * @param workspaceSlug Plane workspace slug
+     * @return persisted workspace page reference
+     */
     public synchronized PlaneWorkspaceDocument ensureWorkspacePage(String workspaceSlug) {
+        // Reuse stored workspace page when available.
         PlaneWorkspaceDocument existing = workspaceRepository.findByPlaneWorkspaceSlug(workspaceSlug).orElse(null);
         if (existing != null)
             return existing;
 
+        // Create page and persist its identifier.
         String pageId = notionClient.createWorkspacePage(workspaceSlug);
         Instant now = Instant.now();
+        // Save reference and clean up failures.
         try {
             return workspaceRepository.save(new PlaneWorkspaceDocument(null, workspaceSlug, pageId, now, now));
         } catch (DuplicateKeyException exception) {
@@ -71,13 +85,22 @@ public class NotionHierarchyService {
         }
     }
 
+    /**
+     * Updates a project's Notion page title and workspace parent from current
+     * Plane project details.
+     *
+     * @param project catalog project with its Notion page ID
+     */
     public void synchronizeProjectPage(PlaneProjectDocument project) {
+        // Ensure workspace page before project update.
         PlaneWorkspaceDocument workspace = ensureWorkspacePage(project.planeWorkspaceSlug());
         notionClient.synchronizeProjectPage(project.notionProjectPageId(), project.planeProjectName(),
                 workspace.notionPageId());
     }
 
+    /** Refreshes hierarchy summaries in Notion without failing the caller. */
     public void refreshSummaries() {
+        // Treat summary refresh failures as nonfatal.
         try {
             writeSummaries();
         } catch (IntegrationException exception) {
@@ -88,7 +111,9 @@ public class NotionHierarchyService {
         }
     }
 
+    /** Rebuilds workspace and parent-page summaries from stored sync data. */
     private void writeSummaries() {
+        // Load configs and project destinations.
         List<SyncConfigDocument> configs = configRepository.findAll(MongoQueryOptions.empty());
         if (configs.isEmpty())
             return;
@@ -99,6 +124,7 @@ public class NotionHierarchyService {
                 .collect(Collectors.toMap(PlaneProjectDocument::id, Function.identity()));
         List<String> dataSourceIds = projectsById.values().stream().map(PlaneProjectDocument::notionDataSourceId)
                 .filter(id -> id != null && !id.isBlank()).distinct().toList();
+        // Count rows and group configured projects.
         Map<String, Long> mappingCounts = mappingRepository.countByNotionDataSourceIds(dataSourceIds);
         Map<String, List<ProjectSummary>> projectsByWorkspace = new LinkedHashMap<>();
         for (SyncConfigDocument config : configs) {
@@ -110,6 +136,7 @@ public class NotionHierarchyService {
                             mappingCounts.getOrDefault(project.notionDataSourceId(), 0L)));
         }
 
+        // Write one overview per workspace.
         List<WorkspaceSummary> workspaceSummaries = new ArrayList<>();
         for (Map.Entry<String, List<ProjectSummary>> entry : projectsByWorkspace.entrySet()) {
             List<ProjectSummary> projects = entry.getValue().stream()
@@ -131,6 +158,7 @@ public class NotionHierarchyService {
             workspaceSummaries.add(new WorkspaceSummary(entry.getKey(), projects.size(), counts, workItemCount));
         }
 
+        // Roll up workspace totals for parent.
         long totalProjects = workspaceSummaries.stream().mapToLong(WorkspaceSummary::projectCount).sum();
         long totalWorkItems = workspaceSummaries.stream().mapToLong(WorkspaceSummary::workItemCount).sum();
         String parentSummary = workspaceSummaries.size() + " " + plural(workspaceSummaries.size(), "workspace")
@@ -146,14 +174,17 @@ public class NotionHierarchyService {
                 List.of("Workspace", "Projects", "Project status", "Synced work items"), workspaceRows);
     }
 
+    /** Formats active, disabled, and archived project totals. */
     private String statusBreakdown(Counts counts) {
         return counts.active() + " active · " + counts.disabled() + " disabled · " + counts.archived() + " archived";
     }
 
+    /** Adds the plural suffix unless the count is one. */
     private String plural(long count, String singular) {
         return count == 1 ? singular : singular + "s";
     }
 
+    /** Counts configured projects by their sync status. */
     private Counts counts(List<ProjectSummary> projects) {
         return new Counts(
                 (int) projects.stream().filter(summary -> summary.config().status() == ConfigStatus.ACTIVE).count(),
@@ -161,12 +192,15 @@ public class NotionHierarchyService {
                 (int) projects.stream().filter(summary -> summary.config().status() == ConfigStatus.ARCHIVED).count());
     }
 
+    /** Workspace overview row data for one configured project. */
     private record ProjectSummary(PlaneProjectDocument project, SyncConfigDocument config, long workItemCount) {
     }
 
+    /** Aggregated project and work-item counts for one workspace. */
     private record WorkspaceSummary(String workspaceSlug, long projectCount, Counts counts, long workItemCount) {
     }
 
+    /** Config status totals displayed in the hierarchy summaries. */
     private record Counts(int active, int disabled, int archived) {
     }
 }

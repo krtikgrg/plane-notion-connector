@@ -34,6 +34,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/** Claims queued jobs and coordinates their execution and completion. */
 @Component
 public class SyncJobWorker {
 
@@ -50,6 +51,7 @@ public class SyncJobWorker {
     private final AdHocNotionDestinationService adHocDestinationService;
     private final ConfigService configService;
 
+    /** Creates the worker with job handlers and related services. */
     public SyncJobWorker(JobRepository jobRepository, SyncConfigRepository configRepository,
             PlaneProjectRepository projectRepository, WorkItemSyncService workItemSyncService,
             ProjectCatalogService projectCatalogService, NotionHierarchyService notionHierarchyService,
@@ -66,12 +68,15 @@ public class SyncJobWorker {
         this.configService = configService;
     }
 
+    /** Claims and dispatches at most one due job per poll. */
     @Scheduled(fixedDelayString = "${sync.worker.poll-interval-ms:5000}")
     public void claimAndRunOne() {
         jobRepository.claimNextDueJob(Instant.now()).ifPresent(this::dispatch);
     }
 
+    /** Routes a claimed job to its matching handler. */
     private void dispatch(JobDocument job) {
+        // Route each claimed job by subtype.
         if (job instanceof ConfigOperationJobDocument operation) {
             runConfigurationOperation(operation);
             return;
@@ -83,11 +88,14 @@ public class SyncJobWorker {
         throw new IllegalStateException("Unknown queued job type: " + job.getClass().getName());
     }
 
+    /** Executes a config operation and records its final job status. */
     private void runConfigurationOperation(ConfigOperationJobDocument job) {
+        // Apply config and record completion.
         try {
             configService.processOperation(job);
             jobRepository.save(copyConfigurationJob(job, JobStatus.SUCCESS, Instant.now(), null, null));
         } catch (Exception exception) {
+            // Restore state and record the failure.
             ErrorDetails error = configurationErrorDetails(exception);
             try {
                 configService.failOperation(job, error.code(), error.message());
@@ -102,6 +110,7 @@ public class SyncJobWorker {
         }
     }
 
+    /** Copies a config job with its final status and error details. */
     private ConfigOperationJobDocument copyConfigurationJob(ConfigOperationJobDocument job,
             JobStatus status, Instant finishedAt, String errorCode, String errorMessage) {
         return new ConfigOperationJobDocument(job.id(), job.jobType(), status, job.configId(), job.operationType(),
@@ -109,14 +118,17 @@ public class SyncJobWorker {
                 job.attemptCount(), errorCode, errorMessage, job.createdAt(), finishedAt);
     }
 
+    /** Executes a sync job and records counts, errors, and follow-up work. */
     private void run(SyncJobDocument job) {
         AtomicReference<WorkItemSyncService.SyncResult> progress = new AtomicReference<>(
                 new WorkItemSyncService.SyncResult(0, 0, 0, 0));
+        // Execute the job and capture progress.
         try {
             WorkItemSyncService.SyncResult result = execute(job, progress);
             Instant finishedAt = Instant.now();
             jobRepository.save(copy(job, JobStatus.SUCCESS, finishedAt, toJobResult(result), null, null));
         } catch (Exception exception) {
+            // Persist partial counts and failure details.
             Instant finishedAt = Instant.now();
             ErrorDetails error = errorDetails(exception);
             WorkItemSyncService.SyncResult partial = progress.get();
@@ -125,13 +137,16 @@ public class SyncJobWorker {
             LOGGER.warn("Sync job {} failed with {} ({})", job.id(), error.code(),
                     exception.getClass().getSimpleName());
         }
+        // Advance schedules and refresh summaries.
         scheduleFollowing(job);
         if (job.configId() != null)
             notionHierarchyService.refreshSummaries();
     }
 
+    /** Resolves the sync target and invokes the appropriate sync operation. */
     private WorkItemSyncService.SyncResult execute(SyncJobDocument job,
             AtomicReference<WorkItemSyncService.SyncResult> progress) {
+        // Reject jobs without project references.
         if (job.planeProjectDocumentId() == null) {
             throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
                     ApiErrorMessages.Application.SYNC_DESTINATION_REQUIRED);
@@ -140,6 +155,7 @@ public class SyncJobWorker {
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
                         ApiErrorCodes.Application.PROJECT_NOT_FOUND,
                         ApiErrorMessages.Application.PLANE_PROJECT_NOT_FOUND));
+        // Route unconfigured tasks to shared Notion.
         if (job.configId() == null) {
             if (job.scope() != SyncScope.WORK_ITEM) {
                 throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.SYNC_DESTINATION_MISSING,
@@ -153,14 +169,17 @@ public class SyncJobWorker {
                 .orElseThrow(() -> new ServiceException(HttpStatus.NOT_FOUND,
                         ApiErrorCodes.Application.CONFIG_NOT_FOUND,
                         ApiErrorMessages.Application.CONFIG_NOT_FOUND));
+        // Honor the archived config force-run flag.
         boolean forceArchivedConfig = job instanceof ManualSyncJobDocument manual && manual.forceArchivedConfig();
         if (job.jobType() == JobType.MANUAL && config.status() == ConfigStatus.ARCHIVED
                 && !forceArchivedConfig) {
             throw new ServiceException(HttpStatus.CONFLICT, ApiErrorCodes.Application.CONFIG_ARCHIVED,
                     ApiErrorMessages.Application.CONFIG_ARCHIVED_FORCE_RUN_REQUIRED);
         }
+        // Refresh Plane details before syncing.
         project = projectCatalogService.refreshProject(project.id());
         notionHierarchyService.synchronizeProjectPage(project);
+        // Select project or single-item sync.
         if (job.scope() == SyncScope.PROJECT) {
             Instant upperCutoff = job.startedAt() == null ? Instant.now() : job.startedAt();
             Instant checkpoint = jobRepository.findLatestSuccessfulProjectSyncStart(config.id())
@@ -170,7 +189,9 @@ public class SyncJobWorker {
         return workItemSyncService.syncOne(project, workItemId(job), progress::set);
     }
 
+    /** Advances scheduling for a completed configured sync job. */
     private void scheduleFollowing(SyncJobDocument finishedJob) {
+        // Skip lookup for ad hoc syncs.
         if (finishedJob.configId() == null)
             return;
         try {
@@ -178,18 +199,22 @@ public class SyncJobWorker {
                     .filter(config -> config.operationStatus() == ConfigOperationStatus.READY)
                     .ifPresent(config -> scheduleService.afterRun(finishedJob, config));
         } catch (RuntimeException exception) {
+            // Continue safely when scheduling fails.
             LOGGER.warn("Could not schedule the next run for config {}", finishedJob.configId());
         }
     }
 
+    /** Copies a sync job subtype with final results and status. */
     private SyncJobDocument copy(SyncJobDocument old, JobStatus status, Instant finishedAt,
             SyncJobResult result, String errorCode, String errorMessage) {
+        // Preserve the manual request details.
         if (old instanceof ManualSyncJobDocument manual) {
             return new ManualSyncJobDocument(old.id(), old.jobType(), old.scope(), status, old.configId(),
                     old.planeProjectDocumentId(), manual.planeWorkItem(), manual.forceArchivedConfig(),
                     old.startedAt(), finishedAt, old.attemptCount(), result, errorCode, errorMessage,
                     old.createdAt(), finishedAt);
         }
+        // Preserve the scheduled occurrence details.
         if (old instanceof ScheduledSyncJobDocument scheduled) {
             return new ScheduledSyncJobDocument(old.id(), old.jobType(), old.scope(), status, old.configId(),
                     old.planeProjectDocumentId(), scheduled.scheduledFor(), old.startedAt(), finishedAt,
@@ -198,6 +223,7 @@ public class SyncJobWorker {
         throw new IllegalArgumentException("Unknown sync job subtype: " + old.getClass().getName());
     }
 
+    /** Extracts a work-item ID from a manual job reference. */
     private String workItemId(SyncJobDocument job) {
         if (job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null) {
             return manual.planeWorkItem().workItemId();
@@ -206,11 +232,13 @@ public class SyncJobWorker {
                 "A manual work-item job must include its Plane work-item reference.");
     }
 
+    /** Converts sync progress into persisted job counts. */
     private SyncJobResult toJobResult(WorkItemSyncService.SyncResult result) {
         return new SyncJobResult(result.eligibleCount(), result.createdCount(), result.updatedCount(),
                 result.unchangedCount());
     }
 
+    /** Maps sync exceptions to stable codes and readable messages. */
     private ErrorDetails errorDetails(Exception exception) {
         if (exception instanceof IntegrationException integration) {
             return new ErrorDetails(integration.errorCode(), integration.getMessage());
@@ -222,6 +250,7 @@ public class SyncJobWorker {
                 "The sync failed. Check the local service logs for details.");
     }
 
+    /** Maps configuration exceptions to stable codes and readable messages. */
     private ErrorDetails configurationErrorDetails(Exception exception) {
         if (exception instanceof IntegrationException integration) {
             return new ErrorDetails(integration.errorCode(), integration.getMessage());
@@ -233,6 +262,7 @@ public class SyncJobWorker {
                 "Configuration setup failed. Check the local service logs for details.");
     }
 
+    /** Stable code and readable message recorded on a failed job. */
     private record ErrorDetails(String code, String message) {
     }
 }

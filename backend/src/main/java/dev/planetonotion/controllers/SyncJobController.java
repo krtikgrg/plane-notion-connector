@@ -29,16 +29,30 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** HTTP endpoints for manual sync jobs and job history. */
 @RestController
 @RequestMapping("/api/sync-jobs")
 public class SyncJobController {
 
     private final SyncJobService syncJobService;
 
+    /** Creates the controller with the sync job service. */
     public SyncJobController(SyncJobService syncJobService) {
         this.syncJobService = syncJobService;
     }
 
+    /**
+     * Lists paginated sync history with optional filters.
+     *
+     * @param configId    optional config MongoDB ID
+     * @param jobStatus   optional status filter
+     * @param jobType     optional job-type filter
+     * @param createdFrom optional inclusive creation-time lower bound
+     * @param createdTo   optional exclusive creation-time upper bound
+     * @param beforeId    optional page cursor
+     * @param pageSize    maximum number of history rows
+     * @return matching jobs and the next page cursor
+     */
     @GetMapping
     public JobHistoryResponse list(@RequestParam(required = false, name = "config_id") String configId,
             @RequestParam(required = false, name = "job_status") JobStatus jobStatus,
@@ -53,11 +67,22 @@ public class SyncJobController {
         return new JobHistoryResponse(page.items().stream().map(this::toResponse).toList(), page.nextBeforeId());
     }
 
+    /**
+     * Returns each config's next pending scheduled run.
+     *
+     * @return config IDs mapped to next scheduled times
+     */
     @GetMapping("/next-scheduled")
     public Map<String, Instant> nextScheduledRuns() {
         return syncJobService.nextScheduledRuns();
     }
 
+    /**
+     * Validates and queues a manual task-URL sync.
+     *
+     * @param request task URL, optional config, and archived-config override
+     * @return accepted job ID and status
+     */
     @PostMapping("/manual")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public EnqueuedJobResponse enqueueTask(@Valid @RequestBody ManualTaskSyncRequest request) {
@@ -66,15 +91,23 @@ public class SyncJobController {
                 syncJobService.enqueueTask(request.taskUrl(), configId, request.forceArchivedConfig()));
     }
 
+    /**
+     * Returns one sync job by database ID.
+     *
+     * @param jobId sync job MongoDB ID
+     * @return matching job response
+     */
     @GetMapping("/{job_id}")
     public JobResponse get(@PathVariable("job_id") String jobId) {
         return toResponse(syncJobService.get(MongoIdParser.required(jobId, "job_id")));
     }
 
+    /** Maps a queued job to its accepted-job response. */
     private EnqueuedJobResponse toEnqueuedResponse(SyncJobDocument job) {
         return new EnqueuedJobResponse(job.id().toHexString(), job.jobStatus(), job.createdAt());
     }
 
+    /** Maps a job subtype to its API response. */
     private JobResponse toResponse(SyncJobDocument job) {
         var planeWorkItem = job instanceof ManualSyncJobDocument manual && manual.planeWorkItem() != null
                 ? new PlaneWorkItemResponse(
@@ -88,6 +121,7 @@ public class SyncJobController {
                 job.errorCode(), job.errorMessage(), job.createdAt());
     }
 
+    /** Rejects history page sizes outside the supported range. */
     private void validatePageSize(int pageSize) {
         if (pageSize < 1 || pageSize > 100) {
             throw new ServiceException(HttpStatus.BAD_REQUEST, ApiErrorCodes.Application.INVALID_PAGE_SIZE,
