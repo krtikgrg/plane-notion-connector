@@ -73,7 +73,7 @@ public final class TestData {
     public static IntegrationProperties integrationProperties(String planeApiUrl, String planeAppUrl,
             String planeToken, String notionApiUrl, String notionToken, String notionParentPageId) {
         return new IntegrationProperties(URI.create(planeApiUrl), URI.create(planeAppUrl), planeToken,
-                URI.create(notionApiUrl), notionToken, notionParentPageId, "", "", "");
+                URI.create(notionApiUrl), notionToken, notionParentPageId);
     }
 
     public static PlaneProjectDocument project(ObjectId id, String workspace, String projectId) {

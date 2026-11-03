@@ -8,13 +8,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import dev.planetonotion.common.IntegrationProperties;
 import dev.planetonotion.integrations.NotionBlockClient;
 import dev.planetonotion.integrations.NotionClient;
 import dev.planetonotion.models.documents.AdHocNotionDestinationDocument;
 import dev.planetonotion.repositories.AdHocNotionDestinationRepository;
-import dev.planetonotion.TestData;
-import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,8 +37,7 @@ class AdHocNotionDestinationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AdHocNotionDestinationService(destinationRepository, notionClient, notionBlockClient,
-                TestData.integrationProperties());
+        service = new AdHocNotionDestinationService(destinationRepository, notionClient, notionBlockClient);
     }
 
     @Test
@@ -72,26 +68,6 @@ class AdHocNotionDestinationServiceTest {
                 .forClass(AdHocNotionDestinationDocument.class);
         verify(destinationRepository).save(saved.capture());
         assertThat(saved.getValue()).isEqualTo(result);
-    }
-
-    @Test
-    void getOrCreate_migratesCompleteLegacyEnvironmentIdsIntoMongo() {
-        IntegrationProperties legacyProperties = new IntegrationProperties(
-                URI.create("https://api.plane.test"), URI.create("https://app.plane.test"), "unused",
-                URI.create("https://notion.test"), "unused", "parent-page-id",
-                "legacy-page", "legacy-database", "legacy-source");
-        service = new AdHocNotionDestinationService(destinationRepository, notionClient, notionBlockClient,
-                legacyProperties);
-        when(destinationRepository.findById(DESTINATION_ID)).thenReturn(Optional.empty());
-        when(destinationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        AdHocNotionDestinationDocument result = service.getOrCreate();
-
-        assertThat(result.notionPageId()).isEqualTo("legacy-page");
-        assertThat(result.notionDatabaseId()).isEqualTo("legacy-database");
-        assertThat(result.notionDataSourceId()).isEqualTo("legacy-source");
-        verifyNoInteractions(notionClient);
-        verify(destinationRepository).save(result);
     }
 
     @Test
