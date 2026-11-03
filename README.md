@@ -26,4 +26,4 @@ Requires Java 21, Maven, Node.js, and a local MongoDB.
 4. In another, run `cd frontend && npm ci && npm run dev`.
 5. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-Plane and Notion API base URLs default to their public cloud endpoints. Override them for self-hosted Plane or another Notion API endpoint.
+Optional endpoint overrides are `PLANE_API_BASE_URL` (default `https://api.plane.so`), `PLANE_APP_BASE_URL` (default `https://app.plane.so`), and `NOTION_API_BASE_URL` (default `https://api.notion.com`). For self-hosted Plane, set both Plane URLs: the API URL is used for requests, and the app URL is used to validate and display Plane links.
